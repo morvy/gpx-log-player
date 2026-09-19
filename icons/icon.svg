@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512" role="img" aria-label="A route line between two points">
+  <!-- The mark keeps inside the circle of radius 204.8 that a maskable icon may not leave,
+       so one file serves both purposes and the PNGs are rendered straight from it. -->
+  <rect width="512" height="512" fill="#242428"/>
+  <path d="M150 380C150 300 250 320 256 256s106-44 106-124"
+        fill="none" stroke="#fc4c02" stroke-width="44" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="150" cy="380" r="34" fill="#f5f5f3"/>
+  <circle cx="362" cy="132" r="34" fill="#f5f5f3"/>
+</svg>

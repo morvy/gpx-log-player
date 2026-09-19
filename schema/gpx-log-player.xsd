@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Validate a log against this one file (the command is in README.md). It
+  pulls in the three namespaces a log uses. gpx.xsd and
+  TrackPointExtensionv2.xsd are unmodified copies of
+  https://www.topografix.com/GPX/1/1/gpx.xsd and
+  https://www8.garmin.com/xmlschemas/TrackPointExtensionv2.xsd, kept here so
+  validation needs no network.
+-->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema">
+  <xs:import namespace="http://www.topografix.com/GPX/1/1" schemaLocation="gpx.xsd"/>
+  <xs:import namespace="http://www.garmin.com/xmlschemas/TrackPointExtension/v2" schemaLocation="TrackPointExtensionv2.xsd"/>
+  <xs:import namespace="urn:dev.moped:ev-gpx:1" schemaLocation="ev.xsd"/>
+</xs:schema>

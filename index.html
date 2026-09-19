@@ -1,0 +1,1215 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GPX log player</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uplot@1.6.32/dist/uPlot.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/uplot@1.6.32/dist/uPlot.iife.min.js"></script>
+<style>
+  :root {
+    --bg: #f5f5f3; --card: #fff; --text: #242428; --muted: #6d6d78; --line: #e3e3e0;
+    --accent: #fc4c02; --regen: #1f9d55;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding-inline: 16px; background: var(--bg); color: var(--text);
+    font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding-block: 12px; }
+  header h1 { font-size: 18px; margin: 0; }
+  header .name { color: var(--muted); overflow-wrap: anywhere; }
+  header nav { margin-left: auto; }
+  header nav a, #empty a { color: var(--accent); }
+  button, select, .file { font: inherit; border: 1px solid var(--line); background: var(--card);
+    color: var(--text); border-radius: 6px; padding: 5px 10px; cursor: pointer; }
+  .file input { display: none; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; min-width: 44px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; }
+  /* The map and the sidebar fill the window below the header; the sidebar
+     scrolls rather than pushing the row taller than the screen. */
+  #top { display: grid; grid-template-columns: minmax(0, 1fr) 360px; gap: 12px;
+    height: calc(100dvh - var(--header, 60px) - 12px); min-height: 480px; }
+  #top > .card { display: flex; flex-direction: column; min-height: 0; }
+  #map { flex: 1; min-height: 0; border-radius: 8px 8px 0 0; }
+  #player { display: flex; gap: 10px; align-items: center; padding: 8px 10px; flex-wrap: wrap; }
+  #player input[type=range] { flex: 1; min-width: 160px; accent-color: var(--accent); }
+  #clock { font-variant-numeric: tabular-nums; min-width: 120px; }
+  #side { display: flex; flex-direction: column; gap: 8px; min-width: 0; min-height: 0; overflow-y: auto; }
+  #side .card { padding: 8px 12px; flex-shrink: 0; }
+  .block > summary { list-style: none; cursor: pointer; display: flex; gap: 8px; align-items: baseline;
+    font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); user-select: none; }
+  .block > summary::-webkit-details-marker { display: none; }
+  .block > summary::before { content: "▾"; display: inline-block; transition: transform .15s; }
+  .block:not([open]) > summary::before { transform: rotate(-90deg); }
+  .block[open] > summary { margin-bottom: 6px; }
+  .block > summary .gist { margin-left: auto; text-transform: none; letter-spacing: 0; color: var(--text); font-variant-numeric: tabular-nums; }
+  h2 { font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 0 0 6px; }
+  /* Fixed columns so nothing in a cell can widen the table past the card: long
+     labels and values wrap inside their own half instead. */
+  table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; table-layout: fixed; }
+  td { padding: 2px 0; vertical-align: top; overflow-wrap: anywhere; }
+  td:first-child { color: var(--muted); padding-right: 8px; width: 42%; }
+  td:last-child { text-align: right; }
+  #stats .big { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-bottom: 6px; }
+  #stats .big div { font-size: 18px; font-weight: 600; }
+  #stats .big small { display: block; font-size: 11px; font-weight: 400; color: var(--muted); }
+  #cells { width: 100%; height: 90px; display: block; }
+  #events { border-color: #f3b3b3; }
+  #events button { display: block; width: 100%; text-align: left; margin: 6px 0; background: #fff5f5; border-color: #f3c4c4; }
+  #events p { margin: 6px 0; }
+  #events button.told { background: #f4f8fc; border-color: #c9dbee; }
+  #events p.hint { white-space: pre-line; }
+  .bad { color: #c62828; font-weight: 600; }
+  details summary { cursor: pointer; color: var(--muted); margin-top: 6px; }
+  #controls { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: center; padding-block: 12px; }
+  #controls label { display: inline-flex; gap: 4px; align-items: center; max-width: 100%; }
+  select { max-width: 100%; min-width: 0; text-overflow: ellipsis; }
+  #custom { width: 16em; }
+  #legend { display: inline-flex; gap: 6px; align-items: center; color: var(--muted); }
+  #legend .bar { width: 120px; height: 10px; border-radius: 5px; }
+  #charts { display: flex; flex-direction: column; gap: 8px; padding-bottom: 24px; }
+  #charts .card { padding: 6px 8px 2px; overflow-x: auto; }
+  #charts h3 { font-size: 13px; margin: 2px 4px; font-weight: 600; }
+  .u-legend { font-size: 12px; text-align: left; }
+  .u-legend .u-marker { width: 10px; height: 10px; }
+  .u-select { background: rgba(252, 76, 2, .15); }
+  #empty { padding: 40px 16px; text-align: center; color: var(--muted); }
+  #drop { position: fixed; inset: 0; background: rgba(252, 76, 2, .12); border: 3px dashed var(--accent);
+    display: none; align-items: center; justify-content: center; font-size: 22px; z-index: 2000; }
+  .hint { color: var(--muted); font-size: 12px; }
+  @media (max-width: 900px) {
+    #top { grid-template-columns: minmax(0, 1fr); height: auto; }
+    #map { min-height: 45vh; }
+    #side { overflow: visible; }
+  }
+</style>
+</head>
+<body>
+<header>
+  <h1>GPX log player</h1>
+  <label class="file">Open GPX<input id="fileInput" type="file" accept=".gpx,application/gpx+xml" multiple></label>
+  <span class="name" id="name"></span>
+  <nav id="validateLink" hidden><a href="validate.html">Validate a file</a> · <a href="statistics.html">Statistics</a></nav>
+</header>
+
+<div id="empty" class="card">Open or drop one GPX log or several - the Honda e dashboard app saves one per drive (Settings, ROUTE, Share GPX).
+  Several logs play one after another as a single trip.</div>
+
+<div id="app" hidden>
+  <div id="top">
+    <div class="card">
+      <div id="map"></div>
+      <div id="player">
+        <button id="play" class="primary" title="Play / pause (space)">▶</button>
+        <select id="rate" title="Playback speed">
+          <option value="1">1×</option><option value="10">10×</option><option value="30" selected>30×</option>
+          <option value="60">60×</option><option value="120">120×</option>
+        </select>
+        <input id="scrub" type="range" min="0" max="0" value="0">
+        <span id="clock"></span>
+        <label class="hint"><input id="follow" type="checkbox" checked> follow</label>
+      </div>
+    </div>
+    <div id="side">
+      <details class="card block" id="eventsBlock" hidden open><summary>Events</summary><div id="events"></div></details>
+      <details class="card block" id="statsBlock" open><summary>Whole drive</summary><div id="stats"></div></details>
+      <details class="card block" id="cursorBlock" open><summary>At the cursor</summary><table id="readout"></table></details>
+      <details class="card block" id="cellsBlock" open><summary>Cells at the cursor</summary><canvas id="cells"></canvas><div class="hint" id="cellsNote"></div></details>
+      <details class="card block" id="valuesBlock"><summary>Every value</summary><table id="allValues"></table></details>
+    </div>
+  </div>
+
+  <div id="controls">
+    <label>Colour route by <select id="colourBy"></select></label>
+    <span id="legend"><span id="legendMin"></span><span class="bar" id="legendBar"></span><span id="legendMax"></span></span>
+    <label>Charts against <select id="xMode"><option value="distance">distance</option><option value="time">time</option></select></label>
+    <label>Extra chart <select id="custom"><option value="">none</option></select></label>
+    <button id="whole">Whole drive</button>
+    <span class="hint">Drag across a chart to measure a climb; double-click a chart for the whole drive.
+      On a phone: slide a finger along a chart to move through the drive, hold two fingers on a stretch to measure it, tap the route to jump there.</span>
+  </div>
+  <div id="chartToggles" style="display:flex;flex-wrap:wrap;gap:4px 14px;padding-bottom:8px"></div>
+  <div id="charts"></div>
+</div>
+<div id="drop">Drop the GPX files</div>
+
+<script>
+"use strict";
+const NS_EV = "urn:dev.moped:ev-gpx:1";
+const NS_TPX = "http://www.garmin.com/xmlschemas/TrackPointExtension/v2";
+const $ = id => document.getElementById(id);
+
+let D = null;           // the parsed drive
+let charts = [];        // uPlot instances
+let syncing = false;    // set while this page moves the charts itself
+let fitOnRange = false; // a user selection zooms the map to it
+let cursorIdx = 0;
+let map, routeLayer, rangeLayer, marker, eventLayer;
+
+// ---------- parsing ----------
+
+function parseGpx(text) {
+  const doc = new DOMParser().parseFromString(text, "application/xml");
+  if (doc.getElementsByTagName("parsererror").length) throw new Error("This is not a readable GPX file.");
+  const key = {};
+  for (const f of doc.getElementsByTagNameNS(NS_EV, "field")) {
+    key[f.getAttribute("id")] = { label: f.getAttribute("label"), unit: f.getAttribute("unit"),
+      source: f.getAttribute("request") ? `ECU ${f.getAttribute("ecu")} ${f.getAttribute("request")} byte ${f.getAttribute("byte")}` : "worked out on the phone" };
+  }
+  // Point names are events only in a file the app wrote; other tools name points for their own reasons.
+  const ours = Object.keys(key).length > 0;
+  const pts = doc.getElementsByTagNameNS("*", "trkpt");
+  const n = pts.length;
+  if (n < 2) throw new Error("The file has fewer than two track points.");
+  const lat = new Float64Array(n), lon = new Float64Array(n), t = new Float64Array(n);
+  const cols = {};
+  const col = id => cols[id] || (cols[id] = new Float64Array(n).fill(NaN));
+  const cells = new Array(n).fill(null);
+  const carEvents = [];
+  let lastText = null, lastCells = null;
+  for (let i = 0; i < n; i++) {
+    const p = pts[i];
+    lat[i] = +p.getAttribute("lat");
+    lon[i] = +p.getAttribute("lon");
+    let told = null;
+    for (const c of p.children) {
+      // A point the app named: something happened there - see GpxTrack.Event.
+      if (c.localName === "name" || c.localName === "desc" || c.localName === "type") (told = told || {})[c.localName] = c.textContent;
+      else if (c.localName === "ele") col("ele")[i] = +c.textContent;
+      else if (c.localName === "time") t[i] = Date.parse(c.textContent);
+      else if (c.localName === "speed") col("gps_speed")[i] = +c.textContent * 3.6; // files from before the extension
+      else if (c.localName === "extensions") {
+        for (const e of c.children) {
+          if (e.namespaceURI === NS_EV) {
+            if (e.localName === "cells_v") {
+              const text = e.textContent;
+              if (text !== lastText) { lastText = text; lastCells = Float64Array.from(text.trim().split(/\s+/), Number); }
+              cells[i] = lastCells;
+            } else col(e.localName)[i] = parseFloat(e.textContent);
+          } else if (e.namespaceURI === NS_TPX && e.localName === "TrackPointExtension") {
+            for (const g of e.children) {
+              if (g.localName === "speed") col("gps_speed")[i] = +g.textContent * 3.6;
+              else if (g.localName === "course") col("course")[i] = +g.textContent;
+            }
+          }
+        }
+      }
+    }
+    if (told && told.type && ours) carEvents.push({ i, ...told });
+  }
+  const name = doc.getElementsByTagNameNS("*", "trk")[0]?.getElementsByTagNameNS("*", "name")[0]?.textContent || "";
+  const vehicle = doc.getElementsByTagNameNS(NS_EV, "vehicle")[0]?.textContent || "";
+  return { n, lat, lon, t, cols, cells, key, name, carEvents, vehicle };
+}
+
+/**
+ * Several logs as one trip, in time order: [starts] is where each begins.
+ * Nothing is drawn or counted across the join - no line on the map, no
+ * distance, no charge jump - and playback skips the time parked between.
+ * A log that starts before the previous one ended (the same drive twice) is
+ * left out and named in [skipped].
+ */
+/**
+ * Of two logs of the same driving, the one to keep: the car's readings beat GPS
+ * alone, then more points. A file often opens with a lone point from before a
+ * reconnect, and that stub must never push out the drive it overlaps.
+ */
+function fuller(a, b) {
+  const has = (g, id) => g.cols[id] ? 1 : 0;
+  return has(a, "energy_kwh") - has(b, "energy_kwh") || has(a, "soc_percent") - has(b, "soc_percent") || a.n - b.n;
+}
+
+function merge(logs) {
+  logs.sort((a, b) => a.t[0] - b.t[0]);
+  const kept = [], skipped = [];
+  for (const g of logs) {
+    const clashing = kept.filter(k => k.t[0] <= g.t[g.n - 1] && g.t[0] <= k.t[k.n - 1]);
+    if (clashing.some(k => fuller(k, g) >= 0)) { skipped.push(`${g.file} overlaps ${clashing[0].file}`); continue; }
+    for (const k of clashing) { kept.splice(kept.indexOf(k), 1); skipped.push(`${k.file} overlaps ${g.file}`); }
+    kept.push(g);
+  }
+  const n = kept.reduce((sum, g) => sum + g.n, 0);
+  const lat = new Float64Array(n), lon = new Float64Array(n), t = new Float64Array(n);
+  const cols = {}, key = {}, cells = new Array(n), carEvents = [], starts = [];
+  let o = 0;
+  for (const g of kept) {
+    starts.push(o);
+    lat.set(g.lat, o); lon.set(g.lon, o); t.set(g.t, o);
+    for (const id in g.cols) (cols[id] || (cols[id] = new Float64Array(n).fill(NaN))).set(g.cols[id], o);
+    for (let i = 0; i < g.n; i++) cells[o + i] = g.cells[i];
+    for (const e of g.carEvents) carEvents.push({ ...e, i: e.i + o });
+    Object.assign(key, g.key);
+    o += g.n;
+  }
+  // The energy counters start again with each log, and within one wherever the app restarted:
+  // at a point the app marked "resumed" - certain even where the new count is already past the
+  // old - or where regen, or what left the pack (energy_kwh + energy_regen_kwh), falls, which a
+  // running total never does. Both are carried on from where they stopped.
+  // Without energy_regen_kwh, an unmarked restart looks like regen.
+  const e = cols.energy_kwh, r = cols.energy_regen_kwh, isStart = new Set(starts);
+  const breaks = new Set(starts.slice(1));
+  for (const ev of carEvents) if (/\bresumed\b/.test(ev.type)) breaks.add(ev.i);
+  if (e && r) for (let i = 0, j = -1; i < n; i++) {
+    if (isStart.has(i)) j = -1;
+    if (!ok(e[i]) || !ok(r[i])) continue;
+    if (j >= 0 && (r[i] < r[j] - 1e-6 || e[i] + r[i] < e[j] + r[j] - 1e-6)) breaks.add(i);
+    j = i;
+  }
+  const at = [...breaks].filter(b => b > 0).sort((a, b) => a - b);
+  for (const c of [e, r]) if (c) at.forEach((b, k) => {
+    const end = (at[k + 1] ?? n) - 1, before = lastValid(c, 0, b - 1), from = firstValid(c, b, end);
+    if (ok(before) && ok(from)) for (let i = b; i <= end; i++) c[i] += before - from;
+  });
+  const vehicle = [...new Set(kept.map(g => g.vehicle).filter(Boolean))].join(", ");
+  return derive({ n, lat, lon, t, cols, cells, key, carEvents, starts, skipped, vehicle,
+    logs: kept.map((g, k) => ({ file: g.file, name: g.name, i0: starts[k] })) });
+}
+
+function derive(d) {
+  const { n, lat, lon, t, cols, cells } = d;
+  const dist = new Float64Array(n);
+  d.isStart = new Uint8Array(n);
+  for (const s of d.starts) d.isStart[s] = 1;
+  for (let i = 1; i < n; i++) dist[i] = dist[i - 1] + (d.isStart[i] ? 0 : haversineKm(lat[i - 1], lon[i - 1], lat[i], lon[i]));
+  d.dist = dist;
+  d.speed = cols.speed_kmh || cols.gps_speed || new Float64Array(n).fill(NaN);
+  if (!cols.power_kw && cols.pack_voltage_v && cols.current_a) {
+    cols.power_kw = cols.pack_voltage_v.map((v, i) => v * cols.current_a[i] / 1000);
+  }
+  d.power = cols.power_kw || new Float64Array(n).fill(NaN);
+  d.hasPower = d.power.some(ok);
+  const cmin = new Float64Array(n).fill(NaN), cmax = new Float64Array(n).fill(NaN), spread = new Float64Array(n).fill(NaN);
+  for (let i = 0; i < n; i++) {
+    const c = cells[i];
+    if (!c) continue;
+    let lo = Infinity, hi = -Infinity;
+    for (const v of c) { if (v < lo) lo = v; if (v > hi) hi = v; }
+    cmin[i] = lo; cmax[i] = hi; spread[i] = (hi - lo) * 1000;
+  }
+  cols.cell_min_v = cmin; cols.cell_max_v = cmax; cols.cell_spread_mv = spread;
+  if (cols.cell_voltage_min_v && cols.cell_voltage_max_v) cols.cell_spread_car_mv = cols.cell_voltage_max_v.map((h, i) => (h - cols.cell_voltage_min_v[i]) * 1000);
+  // One run per cell reply: consecutive points carrying the same 96 values,
+  // with each cell's distance from that reply's median.
+  d.cellRuns = [];
+  d.cellRunAt = new Int32Array(n).fill(-1);
+  for (let i = 0; i < n; i++) {
+    const c = cells[i];
+    if (!c) continue;
+    const last = d.cellRuns[d.cellRuns.length - 1];
+    if (last && last.cells === c && last.i1 === i - 1) last.i1 = i;
+    else {
+      const med = median(c);
+      d.cellRuns.push({ i0: i, i1: i, cells: c, dev: c.map(v => (v - med) * 1000) });
+    }
+    d.cellRunAt[i] = d.cellRuns.length - 1;
+  }
+  d.suspects = suspects(d.cellRuns);
+  d.events = findEvents(d);
+  Object.assign(d.key, {
+    cell_spread_car_mv: { label: "Cell spread (car's own)", unit: "mV", source: "cell_voltage_max_v - cell_voltage_min_v" },
+    cell_min_v: { label: "Lowest cell", unit: "V", source: "from the 96 cells" },
+    cell_max_v: { label: "Highest cell", unit: "V", source: "from the 96 cells" },
+    cell_spread_mv: { label: "Cell spread", unit: "mV", source: "from the 96 cells" },
+    ele: { label: "GPS altitude", unit: "m", source: "GPX ele" },
+    gps_speed: { label: "Speed (GPX)", unit: "km/h", source: "gpxtpx:speed" },
+    course: { label: "Heading", unit: "°", source: "gpxtpx:course" },
+  });
+  return d;
+}
+
+function median(a) {
+  const v = Array.from(a).sort((x, y) => x - y), m = v.length >> 1;
+  return v.length % 2 ? v[m] : (v[m - 1] + v[m]) / 2;
+}
+
+/** Cells ranked by how far under the pack median they sat, averaged over the cell readings in [runs]. */
+function suspects(runs) {
+  if (!runs.length) return [];
+  const count = runs[0].cells.length, sum = new Float64Array(count), lowest = new Uint32Array(count);
+  for (const r of runs) {
+    let lo = 0;
+    r.dev.forEach((v, k) => { sum[k] += v; if (v < r.dev[lo]) lo = k; });
+    lowest[lo]++;
+  }
+  return Array.from(sum, (v, k) => ({ cell: k + 1, mean: v / runs.length, lowest: lowest[k], readings: runs.length }))
+    .sort((a, b) => a.mean - b.mean);
+}
+
+/**
+ * The BMS charge moving further between two of its own readings than the
+ * energy through the pack explains - by [SOC_STEP] points or more, readings
+ * under two minutes apart. On a motorway it steps about half a point every
+ * 12 s, all of it energy; the fall onto the weakest cell on 2026-09-14 was
+ * seven points in 12 s on 0.09 kWh. A long gap between readings is not a
+ * jump: 4.6 points over 106 s on 2026-09-13 was 0.97 kWh of driving.
+ *
+ * POINTS_PER_KWH is a constant; the car's figure moved 3.9 to
+ * 4.2 points a kWh between readings on 2026-09-13, more than 100/28.5
+ * because it is not a share of the usable 28.5 kWh. Fit it per drive if a
+ * colder or older pack drifts far from that.
+ */
+const SOC_STEP = 2;
+const POINTS_PER_KWH = 4.1;
+
+function findEvents(d) {
+  const soc = d.cols.soc_percent;
+  if (!soc) return [];
+  const events = [];
+  let first = -1;
+  for (let i = 0; i < d.n; i++) {
+    if (d.isStart[i]) first = -1;
+    if (!ok(soc[i])) continue;
+    if (first < 0) { first = i; continue; }
+    if (soc[i] === soc[first]) continue;
+    const delta = soc[i] - soc[first], seconds = (d.t[i] - d.t[first]) / 1000;
+    const energy = d.cols.energy_kwh ? d.cols.energy_kwh[i] - d.cols.energy_kwh[first] : integrate(d.power, d.t, first, i).out - integrate(d.power, d.t, first, i).back;
+    const explained = ok(energy) ? -energy * POINTS_PER_KWH : 0;
+    if (Math.abs(delta - explained) >= SOC_STEP && seconds <= 120) {
+      events.push({ i, from: first, before: soc[first], after: soc[i], delta, seconds, energy, explained });
+    }
+    first = i;
+  }
+  return events;
+}
+
+function haversineKm(a1, o1, a2, o2) {
+  const r = Math.PI / 180, dLat = (a2 - a1) * r, dLon = (o2 - o1) * r;
+  const h = Math.sin(dLat / 2) ** 2 + Math.cos(a1 * r) * Math.cos(a2 * r) * Math.sin(dLon / 2) ** 2;
+  return 12742 * Math.asin(Math.sqrt(h));
+}
+
+// ---------- numbers ----------
+
+const ok = v => v != null && !Number.isNaN(v);
+/** Text from the file, made safe to put in HTML - a GPX is somebody's file, not this page's. */
+const esc = text => String(text).replace(/[&<>"]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[ch]);
+const fmt = (v, dec = 1) => ok(v) ? v.toLocaleString(undefined, { minimumFractionDigits: dec, maximumFractionDigits: dec }) : "–";
+// Y-m-d H:i:s in the driver's own time zone, not the browser's locale: a log reads the same wherever
+// it is opened, and sorts and compares against the statistics page, which writes its dates the same way.
+const pad = n => String(n).padStart(2, "0");
+const clock = ms => { const d = new Date(ms); return `${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`; };
+const stamp = ms => { const d = new Date(ms); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${clock(ms)}`; };
+// Non-breaking spaces, so a wrapped line never leaves a unit on its own.
+const duration = s => { s = Math.round(s); const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60); return h ? `${h}\u00a0h\u00a0${String(m).padStart(2, "0")}\u00a0min` : `${m}\u00a0min\u00a0${String(s % 60).padStart(2, "0")}\u00a0s`; };
+
+function firstValid(a, i0, i1) { for (let i = i0; i <= i1; i++) if (ok(a[i])) return a[i]; return NaN; }
+function lastValid(a, i0, i1) { for (let i = i1; i >= i0; i--) if (ok(a[i])) return a[i]; return NaN; }
+function valueAt(a, i) { return a ? a[i] : NaN; }
+
+/** Rises and falls, ignoring wobble smaller than [threshold] metres. */
+function climb(a, i0, i1, threshold = 4) {
+  let up = 0, down = 0, ref = NaN;
+  for (let i = i0; i <= i1; i++) {
+    const v = a[i];
+    if (D?.isStart[i]) ref = NaN; // no climb across the join between two logs
+    if (!ok(v)) continue;
+    if (!ok(ref)) { ref = v; continue; }
+    if (v - ref >= threshold) { up += v - ref; ref = v; } else if (ref - v >= threshold) { down += ref - v; ref = v; }
+  }
+  return { up, down };
+}
+
+/** kWh out of (positive) and back into (negative) the pack, trapezoids over time, gaps over 10 s skipped. */
+function integrate(power, t, i0, i1) {
+  let out = 0, back = 0, pi = -1;
+  for (let i = i0; i <= i1; i++) {
+    if (!ok(power[i])) continue;
+    if (pi >= 0 && t[i] - t[pi] <= 10000) {
+      const kwh = (power[pi] + power[i]) / 2 * (t[i] - t[pi]) / 3.6e6;
+      if (kwh >= 0) out += kwh; else back -= kwh;
+    }
+    pi = i;
+  }
+  return { out, back };
+}
+
+function rangeStats(i0, i1) {
+  const { t, dist, speed, power, cols } = D;
+  const km = dist[i1] - dist[i0];
+  let moving = 0, maxP = -Infinity, minP = Infinity, maxSpread = -Infinity, maxCarSpread = -Infinity;
+  for (let i = i0 + 1; i <= i1; i++) {
+    if (ok(speed[i]) && speed[i] > 2 && t[i] - t[i - 1] < 30000) moving += (t[i] - t[i - 1]) / 1000;
+    if (ok(power[i])) { maxP = Math.max(maxP, power[i]); minP = Math.min(minP, power[i]); }
+    if (ok(cols.cell_spread_mv[i])) maxSpread = Math.max(maxSpread, cols.cell_spread_mv[i]);
+    if (ok(valueAt(cols.cell_spread_car_mv, i))) maxCarSpread = Math.max(maxCarSpread, cols.cell_spread_car_mv[i]);
+  }
+  const flow = integrate(power, t, i0, i1);
+  const energy = cols.energy_kwh ? lastValid(cols.energy_kwh, i0, i1) - firstValid(cols.energy_kwh, i0, i1)
+    : D.hasPower ? flow.out - flow.back : NaN;
+  // Regen, and what left the pack, from the app's own counters where it wrote them, else power over time.
+  const span = a => lastValid(a, i0, i1) - firstValid(a, i0, i1), r = cols.energy_regen_kwh;
+  const regen = r ? span(r) : D.hasPower ? flow.back : NaN;
+  const out = r && cols.energy_kwh ? energy + regen : D.hasPower ? flow.out : NaN;
+  const ele = cols.ele ? climb(cols.ele, i0, i1) : { up: NaN, down: NaN };
+  const rise = cols.ele ? lastValid(cols.ele, i0, i1) - firstValid(cols.ele, i0, i1) : NaN;
+  const soc = cols.soc_percent, weak = cols.soc_weakest_cell_percent;
+  return {
+    km, seconds: (t[i1] - t[i0]) / 1000, moving, energy,
+    per100: km > 0.05 ? energy / km * 100 : NaN,
+    avgSpeed: moving > 0 ? km / (moving / 3600) : NaN,
+    up: ele.up, down: ele.down, grade: km > 0.05 ? rise / (km * 1000) * 100 : NaN,
+    regen, out,
+    maxP: Number.isFinite(maxP) ? maxP : NaN, minP: Number.isFinite(minP) ? minP : NaN,
+    avgP: flow.out || flow.back ? (flow.out - flow.back) / ((t[i1] - t[i0]) / 3.6e6) : NaN,
+    socFrom: soc ? firstValid(soc, i0, i1) : NaN, socTo: soc ? lastValid(soc, i0, i1) : NaN,
+    weakFrom: weak ? firstValid(weak, i0, i1) : NaN, weakTo: weak ? lastValid(weak, i0, i1) : NaN,
+    maxSpread: Number.isFinite(maxSpread) ? maxSpread : NaN,
+    maxCarSpread: Number.isFinite(maxCarSpread) ? maxCarSpread : NaN,
+    suspect: suspects(D.cellRuns.filter(r => r.i1 >= i0 && r.i0 <= i1))[0],
+  };
+}
+
+function showStats(i0, i1) {
+  const s = rangeStats(i0, i1);
+  const whole = i0 === 0 && i1 === D.n - 1;
+  summary("statsBlock", whole ? "Whole drive" : `Selection ${clock(D.t[i0])}–${clock(D.t[i1])}`,
+    `${fmt(s.km, 1)} km · ${fmt(s.per100, 1)} kWh/100 km`);
+  $("stats").innerHTML = `
+    <div class="big">
+      <div>${fmt(s.km, 1)}<small>km</small></div>
+      <div>${fmt(s.energy, 2)}<small>kWh used</small></div>
+      <div>${fmt(s.per100, 1)}<small>kWh/100 km</small></div>
+    </div>
+    <table>
+      <tr><td>Time</td><td>${duration(s.seconds)} · moving ${duration(s.moving)}</td></tr>
+      <tr><td>Average speed</td><td>${fmt(s.avgSpeed, 0)} km/h</td></tr>
+      <tr><td>Up / down</td><td>${fmt(s.up, 0)} / ${fmt(s.down, 0)} m</td></tr>
+      <tr><td>Average grade</td><td>${fmt(s.grade, 1)} %</td></tr>
+      <tr><td>Power avg / max</td><td>${fmt(s.avgP, 1)} / ${fmt(s.maxP, 0)} kW</td></tr>
+      <tr><td>Out of pack · regen back</td><td>${fmt(s.out, 2)} · ${fmt(s.regen, 2)} kWh</td></tr>
+      <tr><td>Regen max</td><td>${fmt(-s.minP, 0)} kW</td></tr>
+      <tr><td>Charge (car)</td><td>${fmt(s.socFrom, 1)} → ${fmt(s.socTo, 1)} %</td></tr>
+      <tr><td>Weakest cell</td><td>${fmt(s.weakFrom, 0)} → ${fmt(s.weakTo, 0)} %</td></tr>
+      <tr><td>Max cell spread</td><td>${ok(s.maxSpread) ? `${fmt(s.maxSpread, 0)} mV` : `${fmt(s.maxCarSpread, 0)} mV (car's own)`}</td></tr>
+      ${s.suspect ? `<tr><td>Lowest cell</td><td><span class="bad">#${s.suspect.cell}</span> · ${fmt(-s.suspect.mean, 1)} mV under median · lowest in ${s.suspect.lowest}/${s.suspect.readings}</td></tr>` : ""}
+    </table>`;
+}
+
+// ---------- cursor readout ----------
+
+function showReadout(i) {
+  const { cols, t, dist, speed, power } = D;
+  const c = cols;
+  const energy0 = c.energy_kwh ? firstValid(c.energy_kwh, 0, D.n - 1) : NaN;
+  const regen0 = c.energy_regen_kwh ? firstValid(c.energy_regen_kwh, 0, D.n - 1) : NaN;
+  const pw = power[i];
+  const log = D.logs.findLast(g => g.i0 <= i);
+  const rows = [
+    ...(D.logs.length > 1 ? [["Log", `${D.logs.indexOf(log) + 1} of ${D.logs.length} · ${esc(log.file)}`]] : []),
+    ["Time", clock(t[i])],
+    ["Distance", `${fmt(dist[i], 2)} km`],
+    ["Speed", `${fmt(speed[i], 0)} km/h`],
+    ["Power", ok(pw) ? `<b style="color:${pw < 0 ? "var(--regen)" : "var(--accent)"}">${fmt(pw, 1)} kW</b>` : "–"],
+    ["Grade · altitude", `${fmt(valueAt(c.grade_percent, i), 1)} % · ${fmt(valueAt(c.ele, i), 0)} m`],
+    ["Charge (car)", `${fmt(valueAt(c.soc_percent, i), 2)} %`],
+    ["Weakest cell", `${fmt(valueAt(c.soc_weakest_cell_percent, i), 0)} %` + (ok(valueAt(c.cell_soc_min_percent, i)) ? ` · cells ${fmt(c.cell_soc_min_percent[i], 1)}–${fmt(valueAt(c.cell_soc_max_percent, i), 1)} %` : "")],
+    ["Cells low / high (car)", `${fmt(valueAt(c.cell_voltage_min_v, i), 4)} / ${fmt(valueAt(c.cell_voltage_max_v, i), 4)} V · ${fmt(valueAt(c.cell_spread_car_mv, i), 0)} mV`],
+    ["Pack", `${fmt(valueAt(c.pack_voltage_v, i), 1)} V · ${fmt(valueAt(c.current_a, i), 1)} A`],
+    ["Pack temp · outside", `${fmt(valueAt(c.battery_temp_c, i), 1)} · ${fmt(valueAt(c.outside_temp_c, i), 0)} °C`],
+    ["Energy used so far", `${fmt(valueAt(c.energy_kwh, i) - energy0, 2)} kWh` + (c.energy_regen_kwh ? ` · regen ${fmt(c.energy_regen_kwh[i] - regen0, 2)}` : "")],
+    ["Consumption (dash)", `${fmt(valueAt(c.kwh_per_100km, i), 1)} kWh/100 km`],
+  ];
+  $("readout").innerHTML = rows.map(([k, v]) => `<tr><td>${k}</td><td>${v}</td></tr>`).join("");
+  $("allValues").innerHTML = Object.keys(cols).sort().map(id => {
+    const k = D.key[id] || { label: id, unit: "" };
+    // The phone's own worked-out values carry a sentence as their label; the id is the name, the sentence the tooltip.
+    const name = k.label.length > 28 ? id : k.label;
+    return `<tr><td title="${esc(k.label)} · ${id} · ${esc(k.source || "")}">${esc(name)}</td><td>${fmt(cols[id][i], 2)} ${esc(k.unit || "")}</td></tr>`;
+  }).join("");
+  drawCells(i);
+  $("clock").textContent = `${clock(t[i])} · ${fmt(dist[i], 1)} km`;
+  summary("cursorBlock", "At the cursor", ok(pw) ? `${fmt(speed[i], 0)} km/h · ${fmt(pw, 1)} kW` : "");
+}
+
+function drawCells(i) {
+  const canvas = $("cells"), c = D.cells[i];
+  const w = canvas.clientWidth, h = canvas.clientHeight, dpr = devicePixelRatio || 1;
+  canvas.width = w * dpr; canvas.height = h * dpr;
+  const g = canvas.getContext("2d");
+  g.scale(dpr, dpr);
+  g.clearRect(0, 0, w, h);
+  canvas.hidden = !c;
+  if (!c) {
+    $("cellsNote").textContent = "No cell voltages at this point.";
+    summary("cellsBlock", "Cells at the cursor", "none");
+    return;
+  }
+  let lo = Infinity, hi = -Infinity, loI = 0, hiI = 0;
+  c.forEach((v, k) => { if (v < lo) { lo = v; loI = k; } if (v > hi) { hi = v; hiI = k; } });
+  const floor = lo - Math.max(0.004, (hi - lo) * 0.5), top = hi + 0.001;
+  const bw = w / c.length, worst = D.suspects[0]?.cell - 1, med = median(c);
+  c.forEach((v, k) => {
+    const bh = (v - floor) / (top - floor) * h;
+    g.fillStyle = k === loI ? "#d62728" : k === hiI ? "#1f77b4" : k === worst ? "#f08080" : "#b9b9c0";
+    g.fillRect(k * bw + 0.5, h - bh, Math.max(1, bw - 1), bh);
+  });
+  const my = h - (med - floor) / (top - floor) * h;
+  g.strokeStyle = "#555";
+  g.setLineDash([3, 3]);
+  g.beginPath(); g.moveTo(0, my); g.lineTo(w, my); g.stroke();
+  summary("cellsBlock", "Cells at the cursor", `#${loI + 1} lowest · ${fmt((hi - lo) * 1000, 0)} mV spread`);
+  $("cellsNote").innerHTML = `${c.length} cells · spread <b>${fmt((hi - lo) * 1000, 0)} mV</b> · lowest <span class="bad">#${loI + 1}</span> ${fmt((lo - med) * 1000, 1)} mV under the median (dashed), highest #${hiI + 1} (blue)` +
+    (worst >= 0 && worst !== loI ? ` · this drive's weakest, #${worst + 1}, in pink` : "");
+}
+
+// ---------- map ----------
+
+const COLOURINGS = [
+  { id: "power", label: "power", get: d => d.power, unit: "kW", diverging: true },
+  { id: "speed", label: "speed", get: d => d.speed, unit: "km/h" },
+  { id: "grade", label: "grade", get: d => d.cols.grade_percent, unit: "%", diverging: true, clamp: 12 },
+  { id: "ele", label: "altitude", get: d => d.cols.ele, unit: "m" },
+  { id: "soc", label: "charge (car)", get: d => d.cols.soc_percent, unit: "%" },
+  { id: "spread", label: "cell spread", get: d => d.cols.cell_spread_mv, unit: "mV" },
+  { id: "per100", label: "consumption (dash)", get: d => d.cols.kwh_per_100km, unit: "kWh/100 km" },
+];
+
+const SEQ = [[0, [48, 90, 200]], [0.35, [60, 170, 200]], [0.6, [250, 200, 60]], [0.8, [250, 120, 30]], [1, [200, 30, 30]]];
+const UP = [[0, [200, 200, 200]], [0.3, [250, 200, 60]], [0.65, [252, 76, 2]], [1, [170, 0, 40]]];
+const DOWN = [[0, [200, 200, 200]], [1, [20, 140, 70]]];
+
+function ramp(stops, f) {
+  f = Math.min(1, Math.max(0, f));
+  for (let k = 1; k < stops.length; k++) {
+    if (f <= stops[k][0]) {
+      const [p0, c0] = stops[k - 1], [p1, c1] = stops[k], u = (f - p0) / (p1 - p0 || 1);
+      return `rgb(${c0.map((v, j) => Math.round(v + (c1[j] - v) * u)).join(",")})`;
+    }
+  }
+  return `rgb(${stops[stops.length - 1][1].join(",")})`;
+}
+
+function percentile(a, q) {
+  const v = Array.from(a).filter(ok).sort((x, y) => x - y);
+  return v.length ? v[Math.min(v.length - 1, Math.floor(q * v.length))] : NaN;
+}
+
+function colourScale(def) {
+  // A GPX with no ev data has nothing to colour by, and #colourBy is then empty: a plain route.
+  if (!def) return null;
+  const a = def.get(D);
+  if (!a) return null;
+  if (def.diverging) {
+    let lo = percentile(a, 0.02), hi = percentile(a, 0.98);
+    if (def.clamp) { lo = Math.max(lo, -def.clamp); hi = Math.min(hi, def.clamp); }
+    lo = Math.min(lo, -0.1); hi = Math.max(hi, 0.1);
+    return { a, lo, hi, colour: v => v >= 0 ? ramp(UP, v / hi) : ramp(DOWN, v / lo),
+      css: `linear-gradient(90deg, ${ramp(DOWN, 1)}, ${ramp(DOWN, 0)} ${(-lo / (hi - lo) * 100).toFixed(0)}%, ${ramp(UP, 0.5)}, ${ramp(UP, 1)})` };
+  }
+  const lo = percentile(a, 0.02), hi = percentile(a, 0.98);
+  return { a, lo, hi, colour: v => ramp(SEQ, (v - lo) / (hi - lo || 1)),
+    css: `linear-gradient(90deg, ${[0, .35, .6, .8, 1].map(f => ramp(SEQ, f)).join(",")})` };
+}
+
+function drawRoute() {
+  const def = COLOURINGS.find(c => c.id === $("colourBy").value);
+  const scale = colourScale(def);
+  if (routeLayer) routeLayer.remove();
+  routeLayer = L.layerGroup().addTo(map);
+  const renderer = L.canvas({ padding: 0.5 });
+  const { lat, lon, n } = D;
+  // Consecutive segments of the same colour go in as one line.
+  let run = [[lat[0], lon[0]]], runColour = null;
+  const flush = () => { if (run.length > 1) L.polyline(run, { color: runColour || "#999", weight: 5, opacity: 0.95, renderer, interactive: false }).addTo(routeLayer); };
+  for (let i = 1; i < n; i++) {
+    const v = scale ? scale.a[i] : NaN;
+    const colour = ok(v) ? scale.colour(v) : "#9a9aa0";
+    if (D.isStart[i]) { flush(); run = []; }
+    else if (colour !== runColour && run.length > 1) { flush(); run = [run[run.length - 1]]; }
+    runColour = colour;
+    run.push([lat[i], lon[i]]);
+  }
+  flush();
+  if (rangeLayer) rangeLayer.bringToFront();
+  if (scale) {
+    $("legend").hidden = false;
+    $("legendMin").textContent = `${fmt(scale.lo, 0)}`;
+    $("legendMax").textContent = `${fmt(scale.hi, 0)} ${def.unit}`;
+    $("legendBar").style.background = scale.css;
+  } else $("legend").hidden = true;
+}
+
+function highlightRange(i0, i1) {
+  if (rangeLayer) rangeLayer.remove();
+  rangeLayer = null;
+  if (i0 === 0 && i1 === D.n - 1) return;
+  const pts = [[]];
+  for (let i = i0; i <= i1; i++) { if (D.isStart[i] && i > i0) pts.push([]); pts[pts.length - 1].push([D.lat[i], D.lon[i]]); }
+  rangeLayer = L.polyline(pts, { color: "#111", weight: 10, opacity: 0.35, interactive: false }).addTo(map);
+  rangeLayer.bringToBack();
+  if (fitOnRange) map.fitBounds(rangeLayer.getBounds(), { padding: [30, 30] });
+}
+
+function nearestOnMap(containerPoint, withinPx = 12) {
+  let best = -1, bestD = withinPx * withinPx;
+  for (let i = 0; i < D.n; i++) {
+    const p = map.latLngToContainerPoint([D.lat[i], D.lon[i]]);
+    const dd = (p.x - containerPoint.x) ** 2 + (p.y - containerPoint.y) ** 2;
+    if (dd < bestD) { bestD = dd; best = i; }
+  }
+  return best;
+}
+
+// ---------- charts ----------
+
+const PALETTE = ["#fc4c02", "#1f77b4", "#2ca02c", "#9467bd", "#8c564b", "#e377c2", "#17becf", "#7f7f7f", "#bcbd22"];
+
+function chartDefs() {
+  const c = D.cols;
+  const series = (key, label, colour, extra = {}) => ({ key, label, colour, ...extra });
+  const defs = [
+    { id: "elevation", title: "Elevation and grade", unit: "m", series: [series("ele", "Altitude", "#8a8f98", { fill: "rgba(138,143,152,.25)", dec: 0 })],
+      right: { unit: "%", series: [series("grade_percent", "Grade", "#9467bd", { dec: 1 })] } },
+    { id: "power", title: "Power", unit: "kW", series: [
+      series("_draw", "Draw", "#fc4c02", { fill: "rgba(252,76,2,.35)", fillTo: 0, dec: 1 }),
+      series("_regen", "Regen", "#1f9d55", { fill: "rgba(31,157,85,.35)", fillTo: 0, dec: 1 })] },
+    { id: "speed", title: "Speed", unit: "km/h", series: [series("_speed", "Speed", "#1f77b4", { dec: 0 })] },
+    { id: "soc", title: "State of charge", unit: "%", series: [
+      series("soc_percent", "Car (BMS)", "#fc4c02", { dec: 2 }), series("soc_weakest_cell_percent", "Weakest cell", "#d62728", { dec: 0 }),
+      series("cell_soc_min_percent", "Cell min", "#9467bd", { dec: 1 }), series("cell_soc_max_percent", "Cell max", "#1f77b4", { dec: 1 })] },
+    // Two sources for the same numbers. The lines are the car's own lowest
+    // and highest cell, in the fast reply several times a second; the dots are
+    // worked out from a reading of all 96 cells, taken only every so often,
+    // drawn once at the moment each arrived rather than held flat until the
+    // next. Where both exist they agree to a few millivolts.
+    { id: "cells", title: "Cells · lines: the car's own lowest and highest cell, several times a second · dots: from a reading of all 96 cells", unit: "V", series: [
+      series("cell_voltage_min_v", "Lowest cell (car)", "#d62728", { dec: 4, width: 1.2 }), series("cell_voltage_max_v", "Highest cell (car)", "#1f77b4", { dec: 4, width: 1.2 }),
+      series("_cell_min", "Lowest of 96", "#d62728", { dec: 4, dots: true }), series("_cell_max", "Highest of 96", "#1f77b4", { dec: 4, dots: true })],
+      right: { unit: "mV", series: [series("cell_spread_car_mv", "Spread (car)", "#9a9aa0", { dec: 0, width: 1 }), series("_cell_spread", "Spread of 96", "#555", { dec: 0, dots: true })] } },
+    { id: "cellmap", heat: true, title: "Every cell against the pack median, red under, blue over" +
+      (D.suspects[0] ? ` · weakest this drive #${D.suspects[0].cell}, ${fmt(-D.suspects[0].mean, 1)} mV under on average` : "") },
+    { id: "pack", title: "Pack voltage and current", unit: "V", series: [series("pack_voltage_v", "Voltage", "#2ca02c", { dec: 1 })],
+      right: { unit: "A", series: [series("current_a", "Current", "#fc4c02", { dec: 1 })] } },
+    { id: "temps", title: "Temperatures", unit: "°C", series: [
+      series("battery_temp_c", "Pack", "#d62728", { dec: 1 }), series("outside_temp_c", "Outside", "#1f77b4", { dec: 0 }),
+      ...[1, 2, 3, 4, 5, 6].map(k => series(`module_${k}_temp_c`, `Module ${k}`, PALETTE[(k + 2) % PALETTE.length], { dec: 1, width: 1 }))] },
+    { id: "energy", title: "Energy used", unit: "kWh", series: [series("_energy", "Since the start", "#fc4c02", { dec: 2 }), series("_regen_energy", "Regen back", "#1f9d55", { dec: 2 })],
+      right: { unit: "kWh/100 km", series: [series("kwh_per_100km", "Consumption (dash)", "#7f7f7f", { dec: 1 })] } },
+  ];
+  const custom = $("custom").value;
+  if (custom && c[custom]) {
+    const k = D.key[custom] || { label: custom, unit: "" };
+    defs.push({ id: "custom", title: k.label, unit: k.unit, series: [series(custom, k.label, "#17becf", { dec: 2 })] });
+  }
+  return defs;
+}
+
+function seriesData(key) {
+  const { cols, power, speed } = D;
+  let a;
+  if (key === "_draw") a = power.map(v => ok(v) ? Math.max(0, v) : NaN);
+  else if (key === "_regen") a = power.map(v => ok(v) ? Math.min(0, v) : NaN);
+  else if (key === "_speed") a = speed;
+  else if (key === "_cell_min" || key === "_cell_max" || key === "_cell_spread") {
+    // Only at the point each cell reading arrived.
+    a = new Float64Array(D.n).fill(NaN);
+    const from = { _cell_min: cols.cell_min_v, _cell_max: cols.cell_max_v, _cell_spread: cols.cell_spread_mv }[key];
+    for (const r of D.cellRuns) a[r.i0] = from[r.i0];
+  }
+  else if (key === "_energy") { if (!cols.energy_kwh) return null; const e0 = firstValid(cols.energy_kwh, 0, D.n - 1); a = cols.energy_kwh.map(v => v - e0); }
+  else if (key === "_regen_energy") { if (!cols.energy_regen_kwh) return null; const r0 = firstValid(cols.energy_regen_kwh, 0, D.n - 1); a = cols.energy_regen_kwh.map(v => v - r0); }
+  else a = cols[key];
+  if (!a || !Array.from(a).some(ok)) return null;
+  return Array.from(a, v => ok(v) ? v : null);
+}
+
+/** A gap in every line where one log ends and the next begins - on the time axis, the time parked. */
+function joinGaps(u, seriesIdx, idx0, idx1, gaps) {
+  const xs = u.data[0];
+  for (const s of D.starts) if (s > idx0 && s <= idx1) gaps.push([u.valToPos(xs[s - 1], "x", true), u.valToPos(xs[s], "x", true)]);
+  return gaps.sort((a, b) => a[0] - b[0]);
+}
+
+function xValues() {
+  return $("xMode").value === "time" ? Array.from(D.t, v => v / 1000) : Array.from(D.dist);
+}
+
+function buildCharts() {
+  const keepRange = charts[0] ? [charts[0].scales.x.min, charts[0].scales.x.max].map(v => idxAt(v)) : null;
+  charts.forEach(u => u.destroy());
+  charts = [];
+  const box = $("charts"), toggles = $("chartToggles");
+  box.innerHTML = "";
+  const hidden = new Set(JSON.parse(localStorageGet("hiddenCharts") || "[]"));
+  toggles.innerHTML = "";
+  const xs = xValues(), time = $("xMode").value === "time";
+  for (const def of chartDefs()) {
+    const data = [xs], series = [{}], axes = [{
+      values: time ? undefined : (u, splits) => splits.map(v => `${fmt(v, splits[1] - splits[0] < 1 ? 1 : 0)} km`),
+      grid: { stroke: "#eee" },
+    }];
+    const add = (s, scale) => {
+      const arr = seriesData(s.key);
+      if (!arr) return false;
+      data.push(arr);
+      series.push({ label: s.label, stroke: s.colour, width: s.width || 1.5, fill: s.fill, fillTo: s.fillTo, scale, gaps: joinGaps,
+        value: (u, v) => v == null ? "–" : fmt(v, s.dec),
+        ...(s.dots ? { paths: () => null, points: { show: true, size: 7, fill: s.colour, stroke: "#fff", width: 1 } } : {}) });
+      return true;
+    };
+    const scales = { x: { time }, y: { auto: true }, y2: { auto: true } };
+    if (def.heat) {
+      if (!D.cellRuns.length) continue;
+      const count = D.cellRuns[0].cells.length;
+      data.push(xs.map(() => null));
+      series.push({ label: "cell", scale: "y", show: false });
+      scales.y = { auto: false, range: [0.5, count + 0.5] };
+      axes.push({ scale: "y", size: 60, label: "cell", labelSize: 16, grid: { show: false },
+        splits: () => [1, 16, 32, 48, 64, 80, count], values: (u, v) => v.map(k => `#${k}`) });
+    } else {
+      const left = def.series.map(s => add(s, "y")).some(Boolean);
+      const right = def.right ? def.right.series.map(s => add(s, "y2")).some(Boolean) : false;
+      if (!left && !right) continue;
+      if (left) axes.push({ scale: "y", size: 60, label: def.unit, labelSize: 16, grid: { stroke: "#eee" } });
+      if (right) axes.push({ scale: "y2", side: 1, size: 60, label: def.right.unit, labelSize: 16, grid: { show: false } });
+    }
+
+    const label = document.createElement("label");
+    label.innerHTML = `<input type="checkbox" ${hidden.has(def.id) ? "" : "checked"}> ${esc(def.title)}`;
+    toggles.appendChild(label);
+    const card = document.createElement("div");
+    card.className = "card";
+    card.hidden = hidden.has(def.id);
+    card.innerHTML = `<h3>${esc(def.title)}</h3>`;
+    box.appendChild(card);
+    label.querySelector("input").addEventListener("change", e => {
+      card.hidden = !e.target.checked;
+      if (e.target.checked) hidden.delete(def.id); else hidden.add(def.id);
+      localStorageSet("hiddenCharts", JSON.stringify([...hidden]));
+      resizeCharts();
+    });
+
+    const title = card.querySelector("h3");
+    const u = new uPlot({
+      width: Math.max(300, box.clientWidth - 18), height: def.heat ? 380 : 170,
+      scales,
+      series, axes,
+      legend: { show: !def.heat, live: true },
+      cursor: { sync: { key: "drive" }, drag: { x: true, y: false, setScale: false }, points: { size: 6 } },
+      hooks: {
+        setCursor: [u => {
+          if (def.heat) heatTitle(u, title, def.title);
+          if (!syncing && u.cursor.idx != null) moveTo(u.cursor.idx, "chart");
+        }],
+        draw: [u => { if (def.heat) drawHeat(u); drawEvents(u); }],
+        setSelect: [u => {
+          if (u.select.width < 4) return;
+          const min = u.posToVal(u.select.left, "x"), max = u.posToVal(u.select.left + u.select.width, "x");
+          u.setSelect({ left: 0, top: 0, width: 0, height: 0 }, false);
+          fitOnRange = true;
+          setRange(min, max);
+          fitOnRange = false;
+        }],
+        setScale: [(u, key) => { if (key === "x" && !syncing) setRange(u.scales.x.min, u.scales.x.max, u); }],
+      },
+    }, data, card);
+    card.addEventListener("dblclick", () => { fitOnRange = true; setRange(xs[0], xs[xs.length - 1]); fitOnRange = false; });
+    enableTouch(u);
+    charts.push(u);
+  }
+  if (keepRange) setRange(xs[keepRange[0]], xs[keepRange[1]]);
+  else showStats(0, D.n - 1);
+}
+
+/**
+ * uPlot answers the mouse only. One finger along a chart moves the cursor; two
+ * fingers mark a stretch, measured when they lift. Vertical swipes still
+ * scroll the page - touch-action leaves those to the browser.
+ */
+function enableTouch(u) {
+  const over = u.over, fingers = new Map();
+  let pair = null;
+  over.style.touchAction = "pan-y";
+  const clear = () => u.setSelect({ left: 0, top: 0, width: 0, height: 0 }, false);
+  const update = () => {
+    const xs = [...fingers.values()], w = over.clientWidth;
+    if (xs.length === 1 && !pair) {
+      const i = u.posToIdx(Math.max(0, Math.min(w, xs[0])));
+      if (i != null) moveTo(i, "touch");
+    } else if (xs.length >= 2) {
+      pair = [Math.max(0, Math.min(...xs)), Math.min(w, Math.max(...xs))];
+      u.setSelect({ left: pair[0], top: 0, width: pair[1] - pair[0], height: over.clientHeight }, false);
+    }
+  };
+  over.addEventListener("pointerdown", e => {
+    if (e.pointerType !== "touch") return;
+    fingers.set(e.pointerId, e.clientX - over.getBoundingClientRect().left);
+    over.setPointerCapture(e.pointerId);
+    update();
+  });
+  over.addEventListener("pointermove", e => {
+    if (!fingers.has(e.pointerId)) return;
+    fingers.set(e.pointerId, e.clientX - over.getBoundingClientRect().left);
+    update();
+  });
+  const lift = e => {
+    if (!fingers.delete(e.pointerId)) return;
+    if (!pair) return;
+    const [a, b] = pair;
+    pair = null;
+    fingers.clear();
+    clear();
+    if (e.type === "pointerup" && b - a >= 8) {
+      fitOnRange = true;
+      setRange(u.posToVal(a, "x"), u.posToVal(b, "x"));
+      fitOnRange = false;
+    }
+  };
+  over.addEventListener("pointerup", lift);
+  over.addEventListener("pointercancel", lift);
+}
+
+/** Each cell reply as a column, each cell a row: red under the pack median, blue over. */
+function drawHeat(u) {
+  const g = u.ctx, box = u.bbox, xs = u.data[0], count = D.cellRuns[0].cells.length;
+  const rowH = box.height / count;
+  g.save();
+  g.beginPath();
+  g.rect(box.left, box.top, box.width, box.height);
+  g.clip();
+  for (const r of D.cellRuns) {
+    const x0 = u.valToPos(xs[r.i0], "x", true), x1 = u.valToPos(xs[Math.min(r.i1 + 1, xs.length - 1)], "x", true);
+    if (x1 < box.left || x0 > box.left + box.width) continue;
+    const w = Math.max(1, x1 - x0);
+    r.dev.forEach((v, k) => {
+      g.fillStyle = v < 0 ? ramp(HEAT_LOW, -v / 15) : ramp(HEAT_HIGH, v / 15);
+      g.fillRect(x0, box.top + box.height - (k + 1) * rowH, w, Math.ceil(rowH));
+    });
+  }
+  g.restore();
+  // The weakest cell's row, across the whole chart, so it can be followed
+  // through the stretches with no cell readings too.
+  const worst = D.suspects[0];
+  if (worst) {
+    const dpr = devicePixelRatio, y = box.top + box.height - (worst.cell - 0.5) * rowH;
+    g.save();
+    g.strokeStyle = "rgba(198,40,40,.8)";
+    g.lineWidth = dpr;
+    g.setLineDash([6 * dpr, 4 * dpr]);
+    g.beginPath(); g.moveTo(box.left, y); g.lineTo(box.left + box.width, y); g.stroke();
+    const label = `#${worst.cell}`;
+    g.font = `600 ${12 * dpr}px system-ui, sans-serif`;
+    const tw = g.measureText(label).width;
+    g.fillStyle = "#fff";
+    g.fillRect(box.left + 2 * dpr, y - 8 * dpr, tw + 8 * dpr, 16 * dpr);
+    g.fillStyle = "#c62828";
+    g.fillText(label, box.left + 6 * dpr, y + 4 * dpr);
+    g.restore();
+  }
+}
+const HEAT_LOW = [[0, [245, 245, 245]], [0.3, [252, 187, 161]], [1, [165, 15, 21]]];
+const HEAT_HIGH = [[0, [245, 245, 245]], [1, [33, 102, 172]]];
+
+function heatTitle(u, el, base) {
+  const i = u.cursor.idx, top = u.cursor.top;
+  const run = i != null ? D.cellRuns[D.cellRunAt[i]] : null;
+  if (!run || top == null || top < 0) { el.textContent = base; return; }
+  const cell = Math.round(u.posToVal(top, "y"));
+  const v = run.dev[cell - 1];
+  el.innerHTML = ok(v) ? `${base} · <span class="${v < -8 ? "bad" : ""}">#${cell} ${fmt(v, 1)} mV</span>` : base;
+}
+
+/** A dashed red line through every chart where the BMS charge jumped. */
+function drawEvents(u) {
+  const g = u.ctx, box = u.bbox, xs = u.data[0];
+  g.save();
+  g.strokeStyle = "#d62728";
+  g.lineWidth = 1.5 * devicePixelRatio;
+  g.setLineDash([5 * devicePixelRatio, 4 * devicePixelRatio]);
+  const line = i => {
+    const x = u.valToPos(xs[i], "x", true);
+    if (x < box.left || x > box.left + box.width) return;
+    g.beginPath();
+    g.moveTo(x, box.top);
+    g.lineTo(x, box.top + box.height);
+    g.stroke();
+  };
+  for (const e of D.events) line(e.i);
+  // The app's own events, blue and dotted, so they do not read as a jump.
+  g.strokeStyle = "#1f77b4";
+  g.setLineDash([2 * devicePixelRatio, 3 * devicePixelRatio]);
+  for (const e of D.carEvents) line(e.i);
+  g.restore();
+}
+
+/** What happened at each jump, and which cell the readings point at. */
+function showEvents() {
+  const card = $("events");
+  const told = D.carEvents;
+  $("eventsBlock").hidden = !D.events.length && !told.length;
+  if (!D.events.length && !told.length) return;
+  summary("eventsBlock", "Events", [
+    D.events.length ? `${D.events.length} BMS jump${D.events.length > 1 ? "s" : ""} · cell #${D.suspects[0]?.cell ?? "?"}` : "",
+    told.length ? `${told.length} from the car` : "",
+  ].filter(Boolean).join(" · "));
+  const { cols, t, dist } = D;
+  const worst = D.suspects[0], next = D.suspects[1];
+  const items = D.events.map((e, k) => {
+    let sag = NaN;
+    for (let i = Math.max(0, e.from - 60); i <= e.i; i++) if (ok(valueAt(cols.cell_spread_car_mv, i))) sag = Math.max(ok(sag) ? sag : 0, cols.cell_spread_car_mv[i]);
+    const before = D.cellRuns.filter(r => r.i1 <= e.i).pop(), after = D.cellRuns.find(r => r.i0 >= e.i);
+    const nearest = [before && { r: before, s: (t[e.i] - t[before.i1]) / 1000, word: "before" }, after && { r: after, s: (t[after.i0] - t[e.i]) / 1000, word: "after" }]
+      .filter(Boolean).sort((a, b) => a.s - b.s)[0];
+    let cellText;
+    if (!worst) cellText = "No cell voltages in this drive, so the cell cannot be named.";
+    else {
+      const atNearest = nearest ? nearest.r.dev.indexOf(Math.min(...nearest.r.dev)) + 1 : null;
+      cellText = `Cell <span class="bad">#${worst.cell}</span> is the weak one: lowest in ${worst.lowest} of ${worst.readings} cell readings this drive, ` +
+        `on average ${fmt(-worst.mean, 1)} mV under the pack median` + (next ? ` - the next, #${next.cell}, only ${fmt(-next.mean, 1)} mV.` : ".") +
+        (nearest ? ` The nearest reading, ${duration(nearest.s)} ${nearest.word}, has #${atNearest} lowest at ${fmt(Math.min(...nearest.r.dev), 1)} mV.` : "");
+    }
+    return `<button data-at="${e.i}"><b>${clock(t[e.i])} · ${fmt(dist[e.i], 1)} km</b><br>
+      BMS charge ${e.delta < 0 ? "fell" : "rose"} <b>${fmt(e.before, 2)} → ${fmt(e.after, 2)} %</b> in ${fmt(e.seconds, 0)} s</button>
+      <p>The pack gave ${fmt(e.energy, 2)} kWh in that time, which explains ${fmt(Math.abs(e.explained), 1)} of the ${fmt(Math.abs(e.delta), 1)} points;
+      the rest is the BMS moving its figure, not energy.
+      ${ok(valueAt(cols.soc_weakest_cell_percent, e.i)) ? `The weakest cell read <b>${fmt(cols.soc_weakest_cell_percent[e.i], 0)} %</b>.` : ""}
+      ${ok(sag) ? `Just before, the car's lowest cell sat up to <b>${fmt(sag, 0)} mV</b> under its highest.` : ""}</p>
+      <p>${cellText}</p>`;
+  });
+  // What the app itself marked on the drive, as it logged it.
+  const carItems = told.map(e => `<button class="told" data-at="${e.i}"><b>${clock(t[e.i])} · ${fmt(dist[e.i], 1)} km</b><br>${esc(e.name || e.type)}</button>
+    <p class="hint">${esc(e.desc || "")}</p>`);
+  card.innerHTML = (items.length ? `<h2>BMS charge jumps</h2>${items.join("")}` : "") + (told.length ? `<h2 style="margin-top:10px">From the car</h2>${carItems.join("")}` : "");
+  card.querySelectorAll("button").forEach(b => b.addEventListener("click", () => {
+    const i = +b.dataset.at, xs = charts[0]?.data[0];
+    if (xs) {
+      // A couple of minutes either side, and the map zoomed to it.
+      fitOnRange = true;
+      setRange(xs[Math.max(0, i - 150)], xs[Math.min(D.n - 1, i + 150)]);
+      fitOnRange = false;
+    }
+    moveTo(i, "event");
+  }));
+}
+
+function idxAt(x) {
+  const xs = charts[0] ? charts[0].data[0] : xValues();
+  let lo = 0, hi = xs.length - 1;
+  while (lo < hi) { const mid = (lo + hi) >> 1; if (xs[mid] < x) lo = mid + 1; else hi = mid; }
+  return lo;
+}
+
+function setRange(min, max, from) {
+  if (!charts.length) return;
+  syncing = true;
+  for (const u of charts) if (u !== from) u.setScale("x", { min, max });
+  syncing = false;
+  const i0 = idxAt(min), i1 = Math.max(i0 + 1, Math.min(D.n - 1, idxAt(max)));
+  const whole = i0 === 0 && i1 >= D.n - 1;
+  showStats(whole ? 0 : i0, whole ? D.n - 1 : i1);
+  highlightRange(whole ? 0 : i0, whole ? D.n - 1 : i1);
+}
+
+function resizeCharts() {
+  const w = Math.max(300, $("charts").clientWidth - 18);
+  charts.forEach(u => u.setSize({ width: w, height: u.height }));
+}
+
+/** A block's title with its headline figures beside it, readable while the block is closed. */
+function summary(id, title, gist) {
+  $(id).querySelector("summary").innerHTML = `${title}${gist ? `<span class="gist">${gist}</span>` : ""}`;
+}
+
+// Which blocks are open, remembered per browser.
+document.querySelectorAll(".block").forEach(block => {
+  const saved = localStorageGet(`open:${block.id}`);
+  if (saved != null) block.open = saved === "1";
+  block.addEventListener("toggle", () => {
+    localStorageSet(`open:${block.id}`, block.open ? "1" : "0");
+    // The canvas has no size while its block is closed.
+    if (block.id === "cellsBlock" && block.open && D) drawCells(cursorIdx);
+  });
+});
+new ResizeObserver(([e]) => document.documentElement.style.setProperty("--header", `${e.target.offsetHeight}px`))
+  .observe(document.querySelector("header"));
+
+function localStorageGet(k) { try { return localStorage.getItem(k); } catch { return null; } }
+function localStorageSet(k, v) { try { localStorage.setItem(k, v); } catch { /* private window */ } }
+
+// ---------- cursor and playback ----------
+
+function moveTo(i, from) {
+  i = Math.max(0, Math.min(D.n - 1, i));
+  if (i === cursorIdx && from === "chart") return;
+  cursorIdx = i;
+  const ll = [D.lat[i], D.lon[i]];
+  marker.setLatLng(ll);
+  if (from !== "chart") {
+    syncing = true;
+    for (const u of charts) {
+      const x = u.data[0][i];
+      if (x < u.scales.x.min || x > u.scales.x.max) continue;
+      u.setCursor({ left: u.valToPos(x, "x"), top: u.cursor.top > 0 ? u.cursor.top : 20 });
+    }
+    syncing = false;
+  }
+  if (from === "play" && $("follow").checked && !map.getBounds().pad(-0.25).contains(ll)) map.panTo(ll, { animate: false });
+  $("scrub").value = i;
+  showReadout(i);
+}
+
+let playing = false, playTime = 0, lastFrame = 0;
+function togglePlay() {
+  playing = !playing;
+  $("play").textContent = playing ? "❚❚" : "▶";
+  if (!playing) return;
+  if (cursorIdx >= D.n - 1) cursorIdx = 0;
+  playTime = D.t[cursorIdx];
+  lastFrame = performance.now();
+  requestAnimationFrame(frame);
+}
+function frame(now) {
+  if (!playing) return;
+  playTime += (now - lastFrame) * +$("rate").value;
+  lastFrame = now;
+  let i = cursorIdx;
+  if (D.isStart[i + 1]) playTime = Math.max(playTime, D.t[i + 1]);
+  while (i < D.n - 1 && D.t[i + 1] <= playTime) i++;
+  if (i !== cursorIdx) moveTo(i, "play");
+  if (i >= D.n - 1) { togglePlay(); return; }
+  requestAnimationFrame(frame);
+}
+
+// ---------- loading ----------
+
+/** [files] as {text, name}: one log or several. */
+function load(files) {
+  const logs = [], failed = [];
+  for (const f of files) {
+    try { logs.push({ ...parseGpx(f.text), file: f.name }); } catch (e) { failed.push(`${f.name}: ${e.message}`); }
+  }
+  if (!logs.length) { alert(failed.join("\n")); return; }
+  D = merge(logs);
+  if (failed.length || D.skipped.length) alert(`Left out:\n${[...failed, ...D.skipped].join("\n")}`);
+  playing = false;
+  $("play").textContent = "▶";
+  $("name").textContent = (D.vehicle ? `${D.vehicle} · ` : "") + (D.logs.length > 1 ? `${D.logs.length} logs` : D.logs[0].file || D.logs[0].name) +
+    ` · ${stamp(D.t[0])} · ${D.n} points`;
+  $("empty").hidden = true;
+  $("app").hidden = false;
+  if (!map) {
+    map = L.map("map", { preferCanvas: true });
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    }).addTo(map);
+    marker = L.circleMarker([0, 0], { radius: 8, color: "#fff", weight: 3, fillColor: "#fc4c02", fillOpacity: 1 }).addTo(map);
+    eventLayer = L.layerGroup().addTo(map);
+    let pending = null;
+    map.on("mousemove", e => {
+      pending = e.containerPoint;
+      requestAnimationFrame(() => {
+        if (!pending || !D) return;
+        const i = nearestOnMap(pending);
+        pending = null;
+        if (i >= 0) moveTo(i, "map");
+      });
+    });
+    // Touch has no hover: a tap near the route jumps there.
+    map.on("click", e => {
+      const i = nearestOnMap(e.containerPoint, 24);
+      if (i >= 0) moveTo(i, "map");
+    });
+    new ResizeObserver(() => resizeCharts()).observe($("charts"));
+    new ResizeObserver(() => map.invalidateSize()).observe($("map"));
+  }
+  const available = COLOURINGS.filter(c => { const a = c.get(D); return a && Array.from(a).some(ok); });
+  $("colourBy").innerHTML = available.map(c => `<option value="${c.id}">${c.label}</option>`).join("");
+  $("custom").innerHTML = `<option value="">none</option>` + Object.keys(D.cols).sort()
+    .map(id => `<option value="${id}">${esc((D.key[id] || { label: id }).label)}${D.key[id]?.unit ? ` (${esc(D.key[id].unit)})` : ""}</option>`).join("");
+  $("scrub").max = D.n - 1;
+  map.invalidateSize();
+  map.fitBounds(L.latLngBounds(Array.from(D.lat, (v, i) => [v, D.lon[i]])), { padding: [20, 20] });
+  charts.forEach(u => u.destroy());
+  charts = [];
+  eventLayer.clearLayers();
+  drawRoute();
+  buildCharts();
+  showEvents();
+  for (const e of D.events) {
+    L.marker([D.lat[e.i], D.lon[e.i]], { icon: L.divIcon({ className: "", html: '<div style="font-size:22px;line-height:22px">⚠️</div>', iconSize: [22, 22], iconAnchor: [11, 11] }) })
+      .bindTooltip(`BMS charge ${fmt(e.before, 1)} → ${fmt(e.after, 1)} %`).addTo(eventLayer);
+  }
+  for (const e of D.carEvents) {
+    L.circleMarker([D.lat[e.i], D.lon[e.i]], { radius: 7, color: "#fff", weight: 2, fillColor: "#1f77b4", fillOpacity: 1 })
+      .bindTooltip(`${esc(e.name || e.type)}<br><small>${esc(e.desc || "")}</small>`).addTo(eventLayer);
+  }
+  cursorIdx = -1;
+  moveTo(0, "load");
+}
+
+const readAll = async list => { if (list.length) load(await Promise.all([...list].map(async f => ({ text: await f.text(), name: f.name })))); };
+$("fileInput").addEventListener("change", e => readAll(e.target.files));
+$("colourBy").addEventListener("change", drawRoute);
+$("xMode").addEventListener("change", buildCharts);
+$("custom").addEventListener("change", buildCharts);
+$("whole").addEventListener("click", () => { fitOnRange = true; const xs = charts[0]?.data[0]; if (xs) setRange(xs[0], xs[xs.length - 1]); fitOnRange = false; if (!xs) map.fitBounds(routeLayer.getBounds?.() || map.getBounds()); });
+$("play").addEventListener("click", togglePlay);
+$("scrub").addEventListener("input", e => moveTo(+e.target.value, "scrub"));
+document.addEventListener("keydown", e => {
+  if (!D || e.target.tagName === "SELECT" || e.target.tagName === "INPUT" && e.target.type !== "range") return;
+  if (e.code === "Space") { e.preventDefault(); togglePlay(); }
+  else if (e.code === "ArrowRight") moveTo(cursorIdx + (e.shiftKey ? 30 : 1), "key");
+  else if (e.code === "ArrowLeft") moveTo(cursorIdx - (e.shiftKey ? 30 : 1), "key");
+});
+["dragenter", "dragover"].forEach(ev => document.addEventListener(ev, e => { e.preventDefault(); $("drop").style.display = "flex"; }));
+["dragleave", "drop"].forEach(ev => document.addEventListener(ev, e => { e.preventDefault(); if (ev === "drop" || e.target === $("drop")) $("drop").style.display = "none"; }));
+document.addEventListener("drop", e => readAll(e.dataTransfer.files));
+
+// Opened from statistics.html: drives it keeps in this browser, by id, optionally at a moment.
+async function openStored(ids, at, from, to) {
+  const db = await new Promise((resolve, reject) => {
+    const req = indexedDB.open("gpx-log-player");
+    // No statistics in this browser yet: do not leave an empty database behind.
+    req.onupgradeneeded = () => req.transaction.abort();
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(new Error("No drives are stored in this browser - add them on the statistics page."));
+  });
+  let files;
+  try {
+    files = await Promise.all(ids.map(id => new Promise((resolve, reject) => {
+      const req = db.transaction("files").objectStore("files").get(id);
+      req.onsuccess = () => req.result ? resolve(req.result) : reject(new Error("That drive's file is no longer stored."));
+      req.onerror = () => reject(req.error);
+    })));
+  } finally {
+    db.close();
+  }
+  load(files.map(f => ({ text: f.text, name: f.name })));
+  if (!at || !D) return;
+  // A whole drive where the statistics sent its span, and two minutes either side of a moment where they
+  // did not: opening a drive is to look at the drive, opening a braking is to look at the braking.
+  const index = time => { const i = D.t.findIndex(v => v >= time); return i < 0 ? D.n - 1 : i; };
+  const xs = charts[0]?.data[0];
+  if (xs) {
+    fitOnRange = true;
+    setRange(xs[index(from || at - 120000)], xs[index(to || at + 120000)]);
+    fitOnRange = false;
+  }
+  // The charts apply the new range a moment later and put their cursor back where it was; place it after that -
+  // on the next frame, and again on a timer for a tab opened in the background, which gets no frames.
+  const place = () => moveTo(index(at), "event");
+  requestAnimationFrame(place);
+  setTimeout(place, 100);
+}
+const stored = new URLSearchParams(location.search);
+const number = name => Number(stored.get(name)) || 0;
+if (stored.get("drive")) openStored(stored.get("drive").split(","), number("at"), number("from"), number("to")).catch(e => alert(e.message));
+
+// Opened with ?file=<url>: fetch that log from the server offering this page.
+const wanted = new URLSearchParams(location.search).get("file");
+if (wanted) fetch(wanted).then(r => r.ok ? r.text() : Promise.reject(new Error(`${r.status} fetching ${wanted}`)))
+  .then(text => load([{ text, name: decodeURIComponent(new URLSearchParams(location.search).get("name") || wanted) }]))
+  .catch(e => alert(e.message));
+// The validator sits next to this page where it is published; a server offering the player alone has none.
+fetch("validate.html", { method: "HEAD" }).then(r => {
+  $("validateLink").hidden = !r.ok;
+  // Published whole, so sw.js is beside this page too, and offline then works once visited. Served
+  // alone by gpx_player.py, or opened from a file, there is nothing to register and nothing here
+  // needs one: this page stays one file that loads nothing of its own.
+  if (r.ok) try { navigator.serviceWorker?.register("sw.js").catch(() => {}); } catch {}
+}).catch(() => {});
+</script>
+</body>
+</html>

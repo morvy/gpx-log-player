@@ -1,0 +1,136 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  The urn:dev.moped:ev-gpx:1 extension: the values an electric vehicle logged
+  along a GPX 1.1 track, one element per value inside each trkpt's
+  <extensions>, and the vehicle and a key to the values inside
+  <metadata><extensions>.
+
+  Readings every EV has go by one name with the unit in it (soc_percent,
+  pack_voltage_v); what only one car reports keeps that car's own id. GPX lets
+  any other namespace into <extensions> with processContents="lax": an element
+  declared here is checked against its type, any other name in this namespace
+  is let through unchecked. That is on purpose - a log can carry any value
+  under any id - so only the shared names are declared. The player still reads
+  every other one as a number; the web validator checks that, a schema cannot.
+-->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema"
+           xmlns="urn:dev.moped:ev-gpx:1"
+           targetNamespace="urn:dev.moped:ev-gpx:1"
+           elementFormDefault="qualified">
+
+  <!-- ===== In <metadata><extensions> ===== -->
+
+  <xs:element name="vehicle" type="xs:string">
+    <xs:annotation><xs:documentation>The car the log came from.</xs:documentation></xs:annotation>
+  </xs:element>
+
+  <xs:element name="field">
+    <xs:annotation><xs:documentation>
+      What one value name means. Optional; a name without one is listed under itself.
+    </xs:documentation></xs:annotation>
+    <xs:complexType>
+      <xs:attribute name="id" type="Name" use="required"/>
+      <xs:attribute name="label" type="xs:string" use="required"/>
+      <xs:attribute name="unit" type="xs:string"/>
+      <xs:attribute name="field" type="xs:string">
+        <xs:annotation><xs:documentation>The id in the car's config, where it differs from the name in the file.</xs:documentation></xs:annotation>
+      </xs:attribute>
+      <xs:attribute name="ecu" type="xs:string"/>
+      <xs:attribute name="request" type="xs:string"/>
+      <xs:attribute name="byte" type="xs:nonNegativeInteger"/>
+    </xs:complexType>
+  </xs:element>
+
+  <xs:simpleType name="Name">
+    <xs:restriction base="xs:NCName">
+      <xs:pattern value="[A-Za-z_][A-Za-z0-9_.\-]*"/>
+    </xs:restriction>
+  </xs:simpleType>
+
+  <!-- ===== Values on each <trkpt><extensions> ===== -->
+
+  <xs:element name="cells_v">
+    <xs:annotation><xs:documentation>
+      Every cell voltage, V, cell 1 first, space separated. The same count on every point.
+    </xs:documentation></xs:annotation>
+    <xs:simpleType>
+      <xs:restriction base="DecimalList"><xs:minLength value="1"/></xs:restriction>
+    </xs:simpleType>
+  </xs:element>
+
+  <xs:simpleType name="DecimalList">
+    <xs:list itemType="xs:decimal"/>
+  </xs:simpleType>
+
+  <xs:element name="speed_kmh" type="xs:decimal">
+    <xs:annotation><xs:documentation>Speed, km/h, as the car reports it. Without it the player uses gpxtpx:speed.</xs:documentation></xs:annotation>
+  </xs:element>
+  <xs:element name="power_kw" type="xs:decimal">
+    <xs:annotation><xs:documentation>Power, kW, positive out of the pack, negative for regen. Without it: pack_voltage_v × current_a.</xs:documentation></xs:annotation>
+  </xs:element>
+  <xs:element name="pack_voltage_v" type="xs:decimal">
+    <xs:annotation><xs:documentation>Pack voltage, V.</xs:documentation></xs:annotation>
+  </xs:element>
+  <xs:element name="current_a" type="xs:decimal">
+    <xs:annotation><xs:documentation>Pack current, A, positive out of the pack.</xs:documentation></xs:annotation>
+  </xs:element>
+  <xs:element name="energy_kwh" type="xs:decimal">
+    <xs:annotation><xs:documentation>Energy out of the pack less regen, kWh, counted from any start - the player subtracts two points.</xs:documentation></xs:annotation>
+  </xs:element>
+  <xs:element name="energy_regen_kwh">
+    <xs:annotation><xs:documentation>Regen put back into the pack while driving, kWh, counted from any start and only ever rising. Out of the pack = energy_kwh + energy_regen_kwh; a drop in either means the counters started again.</xs:documentation></xs:annotation>
+    <xs:simpleType><xs:restriction base="xs:decimal"><xs:minInclusive value="0"/></xs:restriction></xs:simpleType>
+  </xs:element>
+  <xs:element name="kwh_per_100km" type="xs:decimal">
+    <xs:annotation><xs:documentation>Consumption as the dashboard shows it, kWh/100 km.</xs:documentation></xs:annotation>
+  </xs:element>
+  <xs:element name="grade_percent" type="xs:decimal">
+    <xs:annotation><xs:documentation>Road grade, %.</xs:documentation></xs:annotation>
+  </xs:element>
+  <xs:element name="pressure_altitude_m" type="xs:decimal">
+    <xs:annotation><xs:documentation>Altitude from a barometer, m - relative only.</xs:documentation></xs:annotation>
+  </xs:element>
+  <xs:element name="soc_percent" type="xs:decimal">
+    <xs:annotation><xs:documentation>State of charge the BMS reports, %. Needed for the BMS charge jumps.</xs:documentation></xs:annotation>
+  </xs:element>
+  <xs:element name="soc_weakest_cell_percent" type="xs:decimal">
+    <xs:annotation><xs:documentation>State of charge of the weakest cell, %.</xs:documentation></xs:annotation>
+  </xs:element>
+  <xs:element name="cell_soc_min_percent" type="xs:decimal">
+    <xs:annotation><xs:documentation>Lowest cell state of charge, %.</xs:documentation></xs:annotation>
+  </xs:element>
+  <xs:element name="cell_soc_max_percent" type="xs:decimal">
+    <xs:annotation><xs:documentation>Highest cell state of charge, %.</xs:documentation></xs:annotation>
+  </xs:element>
+  <xs:element name="soh_percent" type="xs:decimal">
+    <xs:annotation><xs:documentation>Battery state of health, %.</xs:documentation></xs:annotation>
+  </xs:element>
+  <xs:element name="cell_voltage_min_v" type="xs:decimal">
+    <xs:annotation><xs:documentation>Lowest cell voltage as the car reports it, V.</xs:documentation></xs:annotation>
+  </xs:element>
+  <xs:element name="cell_voltage_max_v" type="xs:decimal">
+    <xs:annotation><xs:documentation>Highest cell voltage as the car reports it, V.</xs:documentation></xs:annotation>
+  </xs:element>
+  <xs:element name="battery_temp_c" type="xs:decimal">
+    <xs:annotation><xs:documentation>Pack temperature, °C.</xs:documentation></xs:annotation>
+  </xs:element>
+  <xs:element name="outside_temp_c" type="xs:decimal">
+    <xs:annotation><xs:documentation>Outside temperature, °C.</xs:documentation></xs:annotation>
+  </xs:element>
+  <xs:element name="module_1_temp_c" type="xs:decimal"><xs:annotation><xs:documentation>Battery module 1 temperature, °C.</xs:documentation></xs:annotation></xs:element>
+  <xs:element name="module_2_temp_c" type="xs:decimal"><xs:annotation><xs:documentation>Battery module 2 temperature, °C.</xs:documentation></xs:annotation></xs:element>
+  <xs:element name="module_3_temp_c" type="xs:decimal"><xs:annotation><xs:documentation>Battery module 3 temperature, °C.</xs:documentation></xs:annotation></xs:element>
+  <xs:element name="module_4_temp_c" type="xs:decimal"><xs:annotation><xs:documentation>Battery module 4 temperature, °C.</xs:documentation></xs:annotation></xs:element>
+  <xs:element name="module_5_temp_c" type="xs:decimal"><xs:annotation><xs:documentation>Battery module 5 temperature, °C.</xs:documentation></xs:annotation></xs:element>
+  <xs:element name="module_6_temp_c" type="xs:decimal"><xs:annotation><xs:documentation>Battery module 6 temperature, °C.</xs:documentation></xs:annotation></xs:element>
+  <xs:element name="odometer_km" type="xs:decimal">
+    <xs:annotation><xs:documentation>Odometer, km.</xs:documentation></xs:annotation>
+  </xs:element>
+  <xs:element name="range_km" type="xs:decimal">
+    <xs:annotation><xs:documentation>Range the car shows, km.</xs:documentation></xs:annotation>
+  </xs:element>
+  <xs:element name="aux_12v_v" type="xs:decimal">
+    <xs:annotation><xs:documentation>12 V battery voltage, V.</xs:documentation></xs:annotation>
+  </xs:element>
+
+</xs:schema>

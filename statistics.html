@@ -1,0 +1,1847 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GPX log statistics</title>
+<link rel="icon" href="icons/icon.svg">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#fc4c02">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uplot@1.6.32/dist/uPlot.min.css">
+<script src="https://cdn.jsdelivr.net/npm/uplot@1.6.32/dist/uPlot.iife.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<style>
+  :root { --bg: #f5f5f3; --card: #fff; --text: #242428; --muted: #6d6d78; --line: #e3e3e0; --accent: #fc4c02; --good: #1f9d55; --bad: #c62828;
+    --neutral: #9aa0a6; --accent-soft: #fff1ea; }
+  * { box-sizing: border-box; }
+  /* A rule that sets display would otherwise show a hidden tab panel or evidence area. */
+  [hidden] { display: none !important; }
+  body { margin: 0; padding-inline: 16px; background: var(--bg); color: var(--text);
+    font: 14px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 1100px; margin-inline: auto; padding-bottom: 32px; }
+  header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding-block: 12px; }
+  header h1 { font-size: 18px; margin: 0; }
+  header nav { margin-left: auto; display: flex; gap: 12px; }
+  a { color: var(--accent); }
+  .muted { color: var(--muted); }
+  button, .file { font: inherit; border: 1px solid var(--line); background: var(--card); color: var(--text); border-radius: 6px; padding: 5px 10px; cursor: pointer; }
+  .file { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .file input { display: none; }
+  button[aria-pressed="true"] { background: var(--text); border-color: var(--text); color: #fff; }
+  button:disabled { opacity: .45; cursor: default; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px; margin-bottom: 12px; }
+  h2 { font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 0 0 8px; }
+  #periodBar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-left: auto; padding-block: 4px; }
+  #periodLabel { min-width: 12em; text-align: center; font-weight: 600; }
+  #summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; }
+  .tile b { display: block; font-size: 20px; font-variant-numeric: tabular-nums; }
+  .tile span { display: block; }
+  .trend { font-size: 12px; }
+  .trend.good { color: var(--good); }
+  .trend.bad { color: var(--bad); }
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; font-variant-numeric: tabular-nums; }
+  th, td { text-align: left; padding: 6px 10px 6px 0; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  th { color: var(--muted); font-weight: 500; }
+  #errors li { overflow-wrap: anywhere; }
+  h3 { font-size: 13px; margin: 14px 0 6px; }
+  .habits { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; }
+  .habit { border: 1px solid var(--line); border-left-width: 3px; border-radius: 8px; padding: 10px 12px; }
+  .habit.good { border-left-color: var(--good); }
+  .habit.bad { border-left-color: var(--bad); }
+  .habit b { display: block; font-size: 20px; font-variant-numeric: tabular-nums; }
+  .habit .limit, .habit .note { display: block; font-size: 12px; color: var(--muted); }
+  svg.spark { display: block; width: 100%; height: 22px; margin: 8px 0 4px; }
+  svg.spark polyline { fill: none; stroke: var(--accent); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+  details summary { cursor: pointer; color: var(--accent); font-size: 12px; }
+  details table { margin-top: 6px; }
+  /* The detail tabs: a row of big numbers, then white panels, two to a row. A track's floor is 0 and never a
+     width: a floor wider than a 375 px phone would scroll the whole page sideways. */
+  .stat-row { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 16px 20px; margin-bottom: 22px; }
+  .stat-label { display: flex; align-items: center; gap: 6px; font-size: 13px; }
+  .stat-dot { flex: none; width: 8px; height: 8px; border-radius: 50%; }
+  .stat-dot.good { background: var(--good); }
+  .stat-dot.bad { background: var(--bad); }
+  .stat b { display: block; font-size: 30px; font-weight: 700; line-height: 1.15; font-variant-numeric: tabular-nums; }
+  .stat b small { font-size: 16px; font-weight: 600; }
+  .stat-note { display: block; font-size: 12px; color: var(--muted); }
+  .panel { background: var(--card); border-radius: 10px; padding: 14px 16px; min-width: 0; }
+  .panel .note { display: block; font-size: 12px; color: var(--muted); margin-top: 8px; }
+  .pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-bottom: 16px; }
+  /* The Charges panel next to the charge map: its own height, not stretched to match the map. */
+  #chargeRow { align-items: start; }
+  .chart h2 { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; }
+  .chart select { font: inherit; margin-left: auto; border: 1px solid var(--line); border-radius: 6px;
+    background: var(--card); color: var(--text); padding: 2px 4px; }
+  .key { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .key i { display: inline-block; margin-right: 5px; vertical-align: middle; }
+  .key i.line { width: 12px; height: 3px; }
+  .key i.dot { width: 9px; height: 9px; border-radius: 50%; }
+  .key i.bar { width: 10px; height: 10px; border-radius: 2px; }
+  .bars { display: grid; grid-template-columns: auto minmax(0, 1fr) auto; gap: 7px 10px; align-items: center;
+    font-variant-numeric: tabular-nums; }
+  .bars .bar i { display: block; height: 10px; border-radius: 5px; background: var(--accent); }
+  /* Tables in panels: numbers to the right and never wrapped; a wide one scrolls inside its panel. */
+  .panel .scroll th, .panel .scroll td { text-align: right; padding: 7px 0 7px 14px; }
+  .panel .scroll th:first-child, .panel .scroll td:first-child { text-align: left; padding-left: 0; }
+  .panel .scroll tr:last-child td { border-bottom: 0; }
+  /* The cards folded under a tab keep their figures and lose the bordered box. */
+  .more { margin-top: 16px; }
+  .more summary { font-size: 13px; }
+  .more .habits { gap: 20px; margin-top: 10px; }
+  .more .habit { border: 0; border-radius: 0; padding: 0; }
+  #chargeMap, #placeMap { height: 260px; border-radius: 8px; }
+  /* Settings: three panels in a row, the two limit panels drawn straight into it; they stack under 900 px. */
+  .settings { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: start; }
+  #limitFields { display: contents; }
+  .fields { display: grid; grid-template-columns: minmax(0, 1fr) 4.5em 3.4em; gap: 8px 6px; align-items: center; }
+  .fields input { width: 100%; font: inherit; font-variant-numeric: tabular-nums; text-align: right; padding: 4px 6px;
+    border: 1px solid var(--line); border-radius: 6px; background: var(--card); color: var(--text); }
+  .fields .unit { color: var(--muted); font-size: 12px; }
+  .fields + h2 { margin-top: 16px; }
+  .panel .fields + p { margin: 12px 0 0; }
+  @media (max-width: 900px) { .settings { grid-template-columns: minmax(0, 1fr); } }
+  /* A tab that ignores the period says so at the right, under the period bar. */
+  .tab-note { margin: -14px 0 8px; text-align: right; font-size: 12px; }
+  .panel-head { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+  .panel-head h2 { margin: 0; }
+  #openTicked:not(:disabled) { background: var(--text); border-color: var(--text); color: #fff; }
+  #driveRows th:nth-child(2), #driveRows td:nth-child(2) { text-align: left; }
+  @media (max-width: 700px) {
+    .stat-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .pair { grid-template-columns: minmax(0, 1fr); }
+  }
+  /* The heat map needs no library: 24 equal columns after the day's name, each cell as dark as it is busy.
+     The columns share whatever width there is - never a fixed one, so the whole week fits a 311 px phone
+     without scrolling sideways - and the grid stops growing once a square cell is big enough to read. */
+  #heatmap { display: grid; grid-template-columns: auto repeat(24, minmax(0, 1fr)); gap: 2px;
+    align-items: center; max-width: 660px; margin-bottom: 4px; }
+  #heatmap span { font-size: 10px; color: var(--muted); text-align: center; }
+  #heatmap span.day { text-align: right; padding-right: 4px; }
+  #heatmap i { display: block; aspect-ratio: 1; border-radius: 2px; background: var(--line); }
+  /* The Trip tab: the form on the left; the recommendation and what it rests on side by side, the table under them. */
+  .trip { display: grid; grid-template-columns: minmax(300px, 320px) minmax(0, 1fr); gap: 24px; align-items: start; }
+  .trip-right { display: grid; gap: 14px; min-width: 0; }
+  .trip-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  .trip-panel { background: var(--card); border-radius: 10px; padding: 14px 16px; min-width: 0; }
+  .trip-panel p { margin: 8px 0 0; }
+  .trip-right > p { margin: 0; }
+  .trip-form h2 + .trip-grid { margin-bottom: 16px; }
+  .trip-grid { display: grid; grid-template-columns: 1fr 5.5em 2.2em; gap: 8px; align-items: center; }
+  .trip-grid input { width: 100%; font: inherit; font-variant-numeric: tabular-nums; text-align: right; padding: 4px 6px;
+    border: 1px solid var(--line); border-radius: 6px; background: var(--card); color: var(--text); }
+  .trip-grid .trip-speeds { grid-column: 1 / 3; text-align: left; }
+  .trip-grid .unit { color: var(--muted); font-size: 12px; }
+  .trip-big { font-size: 26px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .trip-bad { margin: 0; color: var(--bad); }
+  svg.trip-curve { display: block; width: 100%; height: auto; margin-top: 4px; }
+  svg.trip-curve text { font-size: 11px; fill: var(--muted); }
+  svg.trip-curve .axis { stroke: var(--line); }
+  svg.trip-curve polyline { fill: none; stroke: var(--accent); stroke-width: 2; }
+  svg.trip-curve .dashed { stroke-dasharray: 5 4; }
+  svg.trip-curve circle { fill: var(--muted); }
+  svg.trip-curve line.marker { stroke: var(--accent); stroke-dasharray: 3 3; }
+  svg.trip-curve text.marker { fill: var(--accent); }
+  /* The table scrolls sideways inside its own box, never the page. */
+  .trip-table { background: var(--card); border-radius: 10px; overflow-x: auto; }
+  .trip-table th, .trip-table td { text-align: right; padding: 8px 14px; }
+  .trip-table th:first-child, .trip-table td:first-child { text-align: left; }
+  .trip-table tr:last-child td { border-bottom: 0; }
+  /* The recommended row: tinted, and semibold from end to end. */
+  .trip-table tr.best td { background: var(--accent-soft); font-weight: 600; }
+  @media (max-width: 900px) { .trip { grid-template-columns: minmax(0, 1fr); } }
+  @media (max-width: 600px) { .trip-pair { grid-template-columns: minmax(0, 1fr); } }
+  #drop { position: fixed; inset: 0; background: rgba(252, 76, 2, .12); border: 3px dashed var(--accent);
+    display: none; align-items: center; justify-content: center; font-size: 22px; z-index: 10; }
+
+  /* Tabs: a row of plain words, the open one underlined in the accent; the period bar at the row's end. */
+  .tabbar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; border-bottom: 1px solid var(--line); margin-bottom: 20px; }
+  .tabbar [role="tablist"] { display: flex; flex-wrap: wrap; }
+  [role="tab"] { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; color: var(--muted); padding: 8px 10px 6px; }
+  [role="tab"][aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); font-weight: 600; }
+  [role="tabpanel"] { padding-bottom: 16px; }
+  #summary { margin-bottom: 20px; }
+  #allHabits { margin-top: 28px; }
+
+  /* The Coach tab. White panels only for the tips and the evidence; everything else sits on the page. */
+  .forecast { margin: 0 0 4px; color: var(--muted); }
+  .coach-row { display: flex; flex-wrap: wrap; gap: 24px; align-items: center; }
+  .dial { flex: 0 0 190px; display: flex; flex-direction: column; align-items: center; gap: 2px; text-align: center; }
+  .dial svg { width: 170px; height: 170px; }
+  .dial circle { fill: none; stroke-width: 16; }
+  .dial .ring-back { stroke: var(--line); }
+  .dial .ring { stroke: var(--accent); stroke-linecap: round; }
+  .dial .score { font-size: 48px; font-weight: 700; fill: var(--text); font-variant-numeric: tabular-nums; }
+  .dial.empty .score { font-size: 14px; font-weight: 600; fill: var(--muted); }
+  .dial .label { font-size: 12px; fill: var(--muted); }
+  .dial .muted, .dial .trend { font-size: 12px; }
+  /* 190 + 380 + 250 and the gaps: the row wraps below about 900 px of window. */
+  .phases { flex: 1 1 380px; min-width: 0; }
+  .phase, .tip { display: block; width: 100%; text-align: left; border: 0; background: none; color: inherit; }
+  .phase { padding: 6px 8px; border-radius: 8px; margin-bottom: 4px; }
+  .phase.empty b { color: var(--muted); }
+  .phase .bar { display: block; height: 8px; border-radius: 4px; background: var(--line); margin-top: 4px; overflow: hidden; }
+  .phase .bar i { display: block; height: 100%; border-radius: 4px; background: var(--accent); }
+  .phase .bar.neutral i { background: var(--neutral); }
+  .coach-tips { flex: 1 1 250px; max-width: 340px; background: var(--card); border-radius: 10px; padding: 14px 16px; }
+  .tip { border-top: 1px solid var(--line); border-radius: 0; padding: 8px 4px; }
+  .tip:first-of-type { border-top: 0; }
+  .tip .muted, .tip .worth { display: block; font-size: 12px; }
+  .worth { color: var(--accent); }
+  [data-evidence][aria-expanded="true"] { outline: 2px solid var(--accent); background: var(--card); }
+  .evidence { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr)); gap: 16px; margin-top: 16px; }
+  .evidence-panel { background: var(--card); border-radius: 10px; padding: 14px 16px; min-width: 0; }
+  .evidence-panel h3 { margin-top: 0; }
+  .evidence-panel th { white-space: normal; }
+  .evidence-panel p { margin: 6px 0 0; }
+  .evidence-panel.small { background: none; border: 1px dashed var(--line); color: var(--muted); }
+  .split { display: flex; gap: 3px; margin: 6px 0; }
+  .split span { height: 18px; border-radius: 3px; }
+  .split .good { background: var(--good); }
+  .split .bad { background: var(--bad); }
+  svg.dots { display: block; width: 100%; height: auto; }
+  svg.dots line { stroke: var(--line); }
+  svg.dots text { font-size: 10px; fill: var(--muted); }
+  svg.dots .gentle { fill: var(--good); }
+  svg.dots .moderate { fill: var(--muted); }
+  svg.dots .brisk { fill: var(--accent); }
+  svg.dots .early { fill: var(--good); }
+  svg.dots .late { fill: var(--bad); }
+  svg.dots line.split-line { stroke: var(--muted); stroke-dasharray: 4 3; }
+  .evidence > .pull-compare { grid-column: 1 / -1; }
+  .pull-fields { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 18px; margin: 10px 0; }
+  .pull-fields label { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+  .pull-fields input { width: 4.5em; font: inherit; font-variant-numeric: tabular-nums; text-align: right; padding: 4px 6px;
+    border: 1px solid var(--line); border-radius: 6px; background: var(--card); color: var(--text); }
+  .pull-sentence { font-size: 15px; }
+  /* The block runs the width of the evidence grid; the chart keeps a panel's width, or its dots and
+     its words would be blown up to three times the size of every other chart on the page. */
+  .pull-compare svg.dots { max-width: 520px; margin-top: 10px; }
+  .coach-busy { color: var(--muted); font-size: 16px; padding: 40px 0; }
+</style>
+</head>
+<body>
+<main>
+<header>
+  <h1>GPX log statistics</h1>
+  <label class="file">Add GPX<input id="fileInput" type="file" accept=".gpx,application/gpx+xml" multiple></label>
+  <span class="muted" id="stored"></span>
+  <nav><a href="./">Player</a><a href="validate.html">Validate</a></nav>
+</header>
+
+<div class="card" id="importCard" hidden>
+  <p id="importStatus"></p>
+  <p id="sharedOpen" hidden></p>
+  <ul id="errors"></ul>
+</div>
+
+<div class="card muted" id="empty">Add GPX drive logs to see statistics. They stay in this browser - nothing is uploaded.</div>
+
+<div id="app" hidden>
+  <div class="tabbar">
+    <div role="tablist" id="tabs" aria-label="Statistics">
+      <button type="button" role="tab" id="tab-coach" aria-controls="panel-coach">Coach</button>
+      <button type="button" role="tab" id="tab-battery" aria-controls="panel-battery">Battery</button>
+      <button type="button" role="tab" id="tab-charging" aria-controls="panel-charging">Charging</button>
+      <button type="button" role="tab" id="tab-trip" aria-controls="panel-trip">Trip</button>
+      <button type="button" role="tab" id="tab-patterns" aria-controls="panel-patterns">Patterns</button>
+      <button type="button" role="tab" id="tab-drives" aria-controls="panel-drives">Drives</button>
+      <button type="button" role="tab" id="tab-settings" aria-controls="panel-settings">Settings</button>
+    </div>
+    <div id="periodBar">
+      <button data-kind="week">Week</button><button data-kind="month">Month</button><button data-kind="all">All</button>
+      <button id="prev" aria-label="Previous period">‹</button>
+      <span id="periodLabel"></span>
+      <button id="next" aria-label="Next period">›</button>
+    </div>
+  </div>
+  <section role="tabpanel" id="panel-coach" aria-labelledby="tab-coach">
+    <div id="summary"></div>
+    <div id="coachView"></div>
+    <details id="allHabits">
+      <summary>All habits</summary>
+      <div id="habits"></div>
+      <h3>Speed bands</h3>
+      <div class="scroll"><table id="bands"></table></div>
+    </details>
+  </section>
+  <section role="tabpanel" id="panel-battery" aria-labelledby="tab-battery" hidden>
+    <div id="batteryStats"></div>
+    <div class="pair" id="batteryCharts"></div>
+    <details class="more" id="batteryMore"><summary></summary><div class="habits" id="batteryCards"></div></details>
+  </section>
+  <section role="tabpanel" id="panel-charging" aria-labelledby="tab-charging" hidden>
+    <div id="chargeStats"></div>
+    <div class="pair" id="chargeRow">
+      <section class="panel"><h2>Charges</h2><div id="chargeList"></div></section>
+      <section class="panel"><h2>Where</h2>
+        <div id="chargeMap" role="region" aria-label="Where the car was plugged in" hidden></div>
+        <div id="chargeWhere"></div></section>
+    </div>
+    <p class="muted" id="chargeNone" hidden>No charge in this period.</p>
+    <div id="chargeCurve"></div>
+  </section>
+  <section role="tabpanel" id="panel-trip" aria-labelledby="tab-trip" hidden>
+    <div id="tripPlanner"></div>
+  </section>
+  <section role="tabpanel" id="panel-patterns" aria-labelledby="tab-patterns" hidden>
+    <p class="muted tab-note">every stored drive, not the period</p>
+    <div id="patternStats"></div>
+    <div class="pair" id="patternCharts"></div>
+    <div class="pair">
+      <section class="panel"><h2>When the car is driven</h2>
+        <div id="heatmap" role="img"></div><span class="note" id="heatmapNote"></span></section>
+      <section class="panel"><h2>Where it sets off and stops</h2>
+        <div id="placeMap" role="region" aria-label="Where the car sets off and stops" hidden></div>
+        <span class="note" id="placeNote"></span></section>
+    </div>
+  </section>
+  <section role="tabpanel" id="panel-drives" aria-labelledby="tab-drives" hidden>
+    <div id="driveStats"></div>
+    <section class="panel">
+      <div class="panel-head"><h2 id="drivesTitle">All drives</h2><button id="openTicked" disabled>Open ticked in player</button></div>
+      <div class="scroll"><table id="driveRows"></table></div>
+    </section>
+  </section>
+  <section role="tabpanel" id="panel-settings" aria-labelledby="tab-settings" hidden>
+    <p class="muted">Limits change only the verdicts and apply at once. Physics values go into the measuring,
+      so changing one works out every stored drive again.</p>
+    <div class="settings"><div id="limitFields"></div><div id="calFields"></div></div>
+  </section>
+</div>
+</main>
+<div id="drop">Drop the GPX files</div>
+
+<script type="module">
+import { SUMMARY_VERSION, visible } from "./stats/summary.js";
+import { periodStart, nextStart, previousStart, inPeriod, totals, baseline } from "./stats/periods.js";
+import { LIMITS, CALIBRATION, LEAST_LIMIT, LEAST_CALIBRATION, withLimits, withCalibration, calibrationKey } from "./stats/settings.js";
+import { SPEED_CEILING } from "./stats/coach.js";
+import { SPEED_BANDS } from "./stats/habits.js";
+import { SOC_BANDS } from "./stats/battery.js";
+import { learnKwhPerPoint, findCharges, curveCharges, chargingCurve, noSocCount } from "./stats/charges.js";
+import { AC_BANDS, distancePerWeek, weekdayHours, places, tempScatter } from "./stats/patterns.js";
+import { openDb, getAll, getAllKeys, get, change } from "./stats/store.js";
+import { drawCoach, PULL_RANGE } from "./stats/coach-view.js";
+import { drawTrip } from "./stats/trip-view.js";
+import { speedModel } from "./stats/trip.js";
+import {
+  WEEKDAYS, day, dayTime, range, thisPeriod, trendVs, trendClass, statRow, panel, plainKey, valueBars, thin,
+  curveGaps, gapLabel, curveCover, efficiencyEnds, busiestTime,
+} from "./stats/tabs-view.js";
+
+const $ = id => document.getElementById(id);
+/** Text from a file, made safe to put in HTML - a GPX is somebody's file, not this page's. */
+const esc = text => String(text).replace(/[&<>"]/g, ch => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" })[ch]);
+const fmt = (v, dec = 1) => !Number.isFinite(v) ? "–" : v.toLocaleString(undefined, { minimumFractionDigits: dec, maximumFractionDigits: dec });
+const hours = s => `${Math.floor(s / 3600)} h ${String(Math.floor(s / 60) % 60).padStart(2, "0")} min`;
+
+// Y-m-d H:i everywhere, in the driver's own time zone, as the periods are. Not the browser's locale:
+// a page of figures reads better sorted and unambiguous, and whether 9/14 is September or the 9th
+// should not depend on which language the browser happens to be set to.
+const pad = n => String(n).padStart(2, "0");
+const ymd = ms => { const d = new Date(ms); return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`; };
+const hm = ms => { const d = new Date(ms); return `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+const ymdhm = ms => `${ymd(ms)} ${hm(ms)}`;
+
+// Without the stored drives nothing on this page works: say so instead of looking empty.
+let db, summaries, limits = LIMITS, calibration = CALIBRATION;
+try {
+  db = await openDb();
+  summaries = await getAll(db, "summaries");
+  limits = withLimits(await get(db, "settings", "limits"));
+  calibration = withCalibration(await get(db, "settings", "calibration"));
+} catch (e) {
+  $("empty").textContent = `The drives kept in this browser cannot be read: ${e.message}`;
+  throw e;
+}
+
+let worker = new Worker("stats-worker.js", { type: "module" });
+// One file at a time, queued: a month of logs is tens of MB, the worker holds only the one it reads,
+// and a reply can only belong to the file posted last. A worker that fails answers with an error,
+// and is replaced so the files after it still get read.
+let workerQueue = Promise.resolve();
+const summarizeFile = (name, text) => (workerQueue = workerQueue.then(() => new Promise(resolve => {
+  worker.onmessage = e => resolve(e.data);
+  worker.onerror = e => {
+    e.preventDefault();
+    worker.terminate();
+    worker = new Worker("stats-worker.js", { type: "module" });
+    resolve({ name, error: e.message || "The statistics worker failed." });
+  };
+  worker.postMessage({ name, text, calibration });
+})));
+// Imports and rebuilds change the stored drives: one at a time, in the order they were asked for.
+let busy = Promise.resolve();
+const serially = work => (busy = busy.then(work, work));
+
+let kind = "week", start = 0;
+// True while stored drives are being measured again: the coach would judge the old figures meanwhile.
+let measuring = false;
+
+const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+/** [files]: File objects, or { name, text }. */
+async function importFiles(files) {
+  $("importCard").hidden = false;
+  $("errors").replaceChildren();
+  const fresh = [];
+  let skipped = 0;
+  for (const [k, f] of files.entries()) {
+    $("importStatus").textContent = `Reading ${k + 1} of ${files.length}: ${f.name}`;
+    try {
+      const text = typeof f.text === "function" ? await f.text() : f.text;
+      const result = await summarizeFile(f.name, text);
+      if (result.error) { addError(f.name, result.error); continue; }
+      if (summaries.some(o => o.fileId === result.fileId)) { skipped++; continue; }
+      // Every copy of a drive is stored; visible() counts only the fullest one.
+      await change(db, [
+        { store: "files", key: result.fileId, value: { name: f.name, text } },
+        ...result.summaries.map(s => ({ store: "summaries", key: s.id, value: s })),
+      ]);
+      summaries.push(...result.summaries);
+      fresh.push(...result.summaries.map(s => s.id));
+    } catch (e) {
+      addError(f.name, e.message);
+    }
+  }
+  const shown = new Set(visible(summaries).map(s => s.id));
+  const added = fresh.filter(id => shown.has(id)).length, copies = fresh.length - added;
+  $("importStatus").textContent = `Added ${plural(added, "drive")}` +
+    (copies ? `, ${plural(copies, "drive")} already there in a fuller copy` : "") +
+    (skipped ? `, ${plural(skipped, "file")} already stored` : "") + ".";
+  // Ask the browser not to clear the history when space runs low.
+  if (fresh.length) navigator.storage?.persist?.();
+  showLatest();
+  return fresh;
+}
+
+/**
+ * Android's Share GPX posts to the service worker, which leaves the files here and sends the
+ * browser to ?inbox. Exactly the keys read are removed, so a share arriving meanwhile is not lost.
+ */
+async function importInbox() {
+  $("sharedOpen").hidden = true;
+  // Two readonly transactions, but started in the same synchronous block: IndexedDB cannot run the
+  // worker's readwrite transaction between them, so the keys and the files cannot disagree. An await
+  // between these two calls would break that, and a share landing in the gap would be deleted unread.
+  const [keys, files] = await Promise.all([getAllKeys(db, "inbox"), getAll(db, "inbox")]);
+  if (!files.length) return;
+  const fresh = await importFiles(files);
+  // Only once they are stored: until then the shared file exists nowhere else in this browser.
+  await change(db, keys.map(key => ({ store: "inbox", key })));
+  // One shared drive is one drive somebody wants to look at, not a month of them to browse.
+  if (fresh.length !== 1) return;
+  const drive = summaries.find(s => s.id === fresh[0]);
+  const a = document.createElement("a");
+  a.href = playerHref([drive.fileId], drive.start, drive.end);
+  a.textContent = "Open the shared drive in the player";
+  $("sharedOpen").replaceChildren(a);
+  $("sharedOpen").hidden = false;
+}
+
+function addError(name, message) {
+  const li = document.createElement("li");
+  li.append(`${name}: ${message} `);
+  const a = document.createElement("a");
+  a.href = "validate.html";
+  a.textContent = "Check it in the validator";
+  li.append(a);
+  $("errors").append(li);
+}
+
+/** A drive out of this browser; its file too once no other drive comes from it. */
+async function forget(id) {
+  const gone = summaries.find(s => s.id === id);
+  if (!gone) return;
+  const lastOfFile = !summaries.some(s => s.fileId === gone.fileId && s.id !== id);
+  await change(db, [{ store: "summaries", key: id }, ...(lastOfFile ? [{ store: "files", key: gone.fileId }] : [])]);
+  summaries = summaries.filter(s => s.id !== id);
+}
+
+/**
+ * Summaries written by an older page are rebuilt from their stored files. Only
+ * the drives still stored come back - a drive deleted from a file stays deleted.
+ * Matched by id (<file>:<n>); changing splitDrives can shift ids.
+ */
+async function rebuildStale() {
+  // Older only: a summary from a newer page (cached modules can lag behind) is left as it is. A summary
+  // measured with other physics is rebuilt too - its habits cannot be compared with these.
+  const key = calibrationKey(calibration);
+  const stale = [...new Set(summaries
+    .filter(s => (s.version ?? 0) < SUMMARY_VERSION || ((s.version ?? 0) === SUMMARY_VERSION && s.calibration !== key))
+    .map(s => s.fileId))];
+  if (!stale.length) return;
+  $("importCard").hidden = false;
+  $("errors").replaceChildren();
+  measuring = true;
+  render();
+  let done = 0, gone = 0;
+  try {
+    for (const [k, fileId] of stale.entries()) {
+      $("importStatus").textContent = `Updating ${k + 1} of ${stale.length} stored files`;
+      const file = await get(db, "files", fileId);
+      // The raw file was dropped to save room: those drives keep the figures they were worked out with,
+      // and the habit totals leave them out rather than compare them with the rest.
+      if (!file) { gone++; continue; }
+      const result = await summarizeFile(file.name, file.text);
+      if (!result.summaries) { addError(file.name, result.error); continue; }
+      done++;
+      const had = new Set(summaries.filter(s => s.fileId === fileId).map(s => s.id));
+      const renewed = result.summaries.filter(s => had.has(s.id));
+      await change(db, renewed.map(s => ({ store: "summaries", key: s.id, value: s })));
+      const byId = new Map(renewed.map(s => [s.id, s]));
+      summaries = summaries.map(o => byId.get(o.id) ?? o);
+    }
+  } finally {
+    // A failed update still leaves the coach to judge what is stored; the caller draws the page again.
+    measuring = false;
+  }
+  $("importStatus").textContent = `Updated ${plural(done, "stored file")}` +
+    (gone ? `, ${plural(gone, "file")} no longer stored` : "") +
+    (stale.length - done - gone ? `, ${plural(stale.length - done - gone, "file")} could not be read` : "") + ".";
+}
+
+const latestStart = () => Math.max(...visible(summaries).map(s => s.start));
+
+function showLatest() {
+  if (!summaries.length) { $("app").hidden = true; $("empty").hidden = false; return; }
+  start = periodStart(kind, latestStart());
+  render();
+}
+
+async function render() {
+  $("empty").hidden = true;
+  $("app").hidden = false;
+  for (const b of document.querySelectorAll("[data-kind]")) b.setAttribute("aria-pressed", String(b.dataset.kind === kind));
+  const drives = visible(summaries);
+  $("prev").disabled = kind === "all" || start <= periodStart(kind, Math.min(...drives.map(s => s.start)));
+  $("next").disabled = kind === "all" || start >= periodStart(kind, latestStart());
+  $("periodLabel").textContent = periodName();
+  const list = periodDrives(drives);
+  showSummary(totals(list), baseline(drives, kind, start));
+  drawCoach($("coachView"), {
+    list, all: drives, kind, start, now: Date.now(), regenEfficiency: calibration.regenEfficiency, measuring,
+    // The pull-away comparison cruises at the speed typed, so it needs the Trip tab's own fitted curve;
+    // no temperature, because the block reads all the driving rather than one period's weather.
+    model: speedModel(drives, { temp: null, calibration }), massKg: calibration.massKg,
+    pull: pullRange, onPull: keepPull,
+  });
+  showHabits(drives);
+  showDrives(list);
+  // Charts and maps are drawn when their tab is on screen: a hidden box has no size to draw them at.
+  for (const name of CHART_TABS) undrawn.add(name);
+  drawTab(currentTab);
+  const used = (await navigator.storage?.estimate?.())?.usage;
+  $("stored").textContent = plural(drives.length, "drive") + (used ? ` · ${fmt(used / 1e6, 0)} MB used in this browser` : "");
+}
+
+/** The period's drives, oldest first. */
+const periodDrives = drives => [...inPeriod(drives, kind, start)].sort((a, b) => a.start - b.start);
+
+function periodName() {
+  if (kind === "all") return "All drives";
+  const from = new Date(start);
+  if (kind === "month") return `${from.getFullYear()}-${pad(from.getMonth() + 1)}`;
+  return `${ymd(start)} – ${ymd(nextStart(kind, start) - 1)}`;
+}
+
+const TILES = [
+  { key: "drives", label: "drives", show: v => fmt(v, 0) },
+  { key: "km", label: "km", show: v => fmt(v, 0) },
+  { key: "seconds", label: "driving", show: hours },
+  { key: "energy", label: "kWh used", show: v => fmt(v, 1) },
+  { key: "per100", label: "kWh/100 km", show: v => fmt(v, 1), better: "lower" },
+  { key: "regenShare", label: "regen back", show: v => v == null ? "–" : `${fmt(v * 100, 0)} %`, better: "higher" },
+];
+
+function showSummary(now, before) {
+  $("summary").replaceChildren(...TILES.map(tile => {
+    const div = document.createElement("div");
+    div.className = "tile";
+    div.innerHTML = `<b>${tile.show(now[tile.key])}</b><span class="muted">${tile.label}</span>`;
+    const trend = trendOf(tile, now, before);
+    if (trend) div.append(trend);
+    return div;
+  }));
+}
+
+/** ▲/▼ against the periods before, coloured where lower or higher is better; changes under 3 % are left out. */
+function trendOf(tile, now, before) {
+  const span = document.createElement("span");
+  if (tile.better && now.km < 20) {
+    span.className = "trend muted";
+    span.textContent = "not enough driving";
+    return span;
+  }
+  const value = now[tile.key], previous = before?.[tile.key];
+  if (value == null || previous == null || previous === 0) return null;
+  const change = (value - previous) / Math.abs(previous);
+  if (Math.abs(change) < 0.03) return null;
+  const up = change > 0;
+  span.className = "trend " + (tile.better ? (up === (tile.better === "higher") ? "good" : "bad") : "muted");
+  span.textContent = `${up ? "▲" : "▼"} ${fmt(Math.abs(change) * 100, 0)} % vs the ${before.periods === 1 ? kind : `${before.periods} ${kind}s`} before`;
+  return span;
+}
+
+/**
+ * What a period's drives add up to, per habit. Counts and energies are added,
+ * never averaged over drives: a 2 km trip must not weigh as much as a 200 km one.
+ * Moments carry the file they came from, so each one keeps its Open in player link.
+ */
+function habitTotals(list) {
+  // A summary whose file is gone cannot be rebuilt, so it keeps the physics it was measured with. Its
+  // driving still counts everywhere else; only its habits are held back, which is what the fingerprint is for.
+  const measuredNow = calibrationKey(calibration);
+  const t = {
+    km: 0, unmeasured: 0, accel: [], brake: [], brakeKwh: 0, recoverableKwh: 0, brakeMoments: [], brakeKnown: false, fullPowerSeconds: null,
+    motorwaySeconds: 0, speedSum: 0, powerSum: 0, powerSeconds: 0, cold: [],
+    bands: SPEED_BANDS.map(() => ({ seconds: 0, km: 0, energy: 0, energyKm: 0 })),
+  };
+  const tag = (moments, s) => moments.map(m => ({ ...m, fileId: s.fileId }));
+  for (const s of list) {
+    // A cold or short trip is judged from the drive's own figures - the limits move, the drive does not.
+    if (s.km < limits.shortTripKm || (s.packTempStart != null && s.packTempStart < limits.coldPackC)) t.cold.push(s);
+    const h = s.calibration === measuredNow ? s.habits : null;
+    // Rates are events over the kilometres they could have happened in: a log with no readings of its own
+    // brings distance and no events, and would quietly make the driving look better than it was.
+    if (!h) { t.unmeasured += s.km; continue; }
+    t.km += s.km;
+    t.accel.push(...tag(h.hardAccel, s));
+    t.brake.push(...tag(h.hardBrake, s));
+    if (h.brakeLoss) {
+      t.brakeKnown = true;
+      t.brakeKwh += h.brakeLoss.kwh;
+      t.recoverableKwh += h.brakeLoss.recoverableKwh;
+      t.brakeMoments.push(...tag(h.brakeLoss.moments, s));
+    }
+    if (h.fullPowerSeconds != null) t.fullPowerSeconds = (t.fullPowerSeconds ?? 0) + h.fullPowerSeconds;
+    if (h.motorway) {
+      t.motorwaySeconds += h.motorway.seconds;
+      t.speedSum += h.motorway.speedSpread * h.motorway.seconds;
+      if (h.motorway.powerSpread != null) { t.powerSum += h.motorway.powerSpread * h.motorway.powerSeconds; t.powerSeconds += h.motorway.powerSeconds; }
+    }
+    h.bands?.forEach((b, i) => {
+      const into = t.bands[i];
+      into.seconds += b.seconds;
+      into.km += b.km;
+      if (b.energy != null) { into.energy += b.energy; into.energyKm += b.km; }
+    });
+  }
+  return t;
+}
+
+const ENOUGH_KM = 20;   // below this a rate says more about the trip than about the driving
+// Under a minute, in seconds: eleven seconds on an empty pack is a red card, and "0 min" on a red card is
+// the page arguing with itself.
+const duration = s => s < 60 ? `${fmt(s, 0)} s` : `${fmt(s / 60, 0)} min`;
+
+/**
+ * Every habit of a period, judged against the limits of the moment - none of
+ * this is stored, so a changed limit is a redraw and not a re-import.
+ */
+function habitCards(list) {
+  const t = habitTotals(list), cards = [];
+  const enough = t.km >= ENOUGH_KM;
+  const rate = n => t.km > 0.05 ? n / t.km * 100 : null;
+
+  for (const [key, label, moments, limit, per100Limit] of [
+    ["hardAccel", "Hard acceleration", t.accel, limits.hardAccel, limits.hardAccelPer100],
+    ["hardBrake", "Hard braking", t.brake, limits.hardBrake, limits.hardBrakePer100],
+  ]) {
+    const hits = moments.filter(m => Math.abs(m.value) >= limit).sort((a, b) => Math.abs(b.value) - Math.abs(a.value));
+    const per100 = rate(hits.length);
+    cards.push({
+      key, label, figure: fmt(per100, 1), unit: "per 100 km", better: "lower",
+      limit: `over ${fmt(limit, 1)} m/s², ${fmt(per100Limit, 1)} per 100 km`,
+      // The habit is the rate. One firm stop in a long week is a road, not a way of driving.
+      value: enough ? per100 : null,
+      verdict: !enough ? null : per100 > per100Limit ? "bad" : "good",
+      note: enough ? null : `not enough driving (under ${ENOUGH_KM} km)`,
+      moments: hits, momentHead: "m/s²", momentValue: m => fmt(Math.abs(m.value), 1),
+    });
+  }
+
+  const share = t.recoverableKwh > 1e-3 ? t.brakeKwh / t.recoverableKwh : null;
+  cards.push({
+    key: "brakeLoss", label: "Energy lost to the brakes", better: "lower",
+    value: share == null ? null : share * 100, figure: share == null ? "–" : fmt(share * 100, 0), unit: "%",
+    limit: `under ${fmt(limits.brakeLossGood * 100, 0)} % good, over ${fmt(limits.brakeLossBad * 100, 0)} % bad`,
+    verdict: share == null ? null : share < limits.brakeLossGood ? "good" : share > limits.brakeLossBad ? "bad" : null,
+    note: share != null ? `${fmt(t.brakeKwh, 2)} kWh of ${fmt(t.recoverableKwh, 2)} kWh - an estimate`
+      : t.brakeKnown ? "no braking to measure here" : "these logs have no brake pedal or power",
+    moments: [...t.brakeMoments].sort((a, b) => b.kwh - a.kwh),
+    momentHead: "kWh", momentValue: m => fmt(m.kwh, 3),
+  });
+
+  const regen = totals(list).regenShare;
+  cards.push({
+    key: "regen", label: "Regen back", better: "higher", value: regen == null ? null : regen * 100,
+    figure: regen == null ? "–" : fmt(regen * 100, 0), unit: "% of the energy out",
+    limit: `${fmt(limits.regenShare * 100, 0)} % or more is good`,
+    verdict: regen == null ? null : regen >= limits.regenShare ? "good" : "bad",
+  });
+
+  cards.push({
+    key: "fullPower", label: "Full power", value: t.fullPowerSeconds == null ? null : t.fullPowerSeconds / 60,
+    figure: t.fullPowerSeconds == null ? "–" : duration(t.fullPowerSeconds), unit: "above 60 kW",
+    limit: "shown, not judged", verdict: null,
+  });
+
+  const spread = t.motorwaySeconds ? t.speedSum / t.motorwaySeconds : null;
+  cards.push({
+    key: "motorway", label: "Motorway steadiness", better: "lower", value: spread,
+    figure: spread == null ? "–" : fmt(spread, 1), unit: "km/h of speed spread",
+    limit: `${fmt(limits.motorwaySpread, 1)} km/h or less is good`,
+    verdict: spread == null ? null : spread <= limits.motorwaySpread ? "good" : "bad",
+    note: spread == null ? "no stretch of a minute above 90 km/h" :
+      `over ${duration(t.motorwaySeconds)}` + (t.powerSeconds ? `, ${fmt(t.powerSum / t.powerSeconds, 1)} kW of power spread` : ""),
+  });
+
+  const cold = totals(t.cold);
+  cards.push({
+    key: "cold", label: "Short or cold trips", better: "lower", value: cold.drives,
+    figure: fmt(cold.drives, 0), unit: cold.drives === 1 ? "drive" : "drives",
+    limit: `under ${fmt(limits.shortTripKm, 1)} km, or a pack under ${fmt(limits.coldPackC, 0)} °C`,
+    verdict: !list.length ? null : cold.drives ? "bad" : "good",
+    note: cold.drives ? `${fmt(cold.km, 0)} km at ${fmt(cold.per100, 1)} kWh/100 km` : null,
+  });
+  return { cards, bands: t.bands, unmeasured: t.unmeasured };
+}
+
+const PERIODS = 8;   // the window the sparklines and the trend charts look back over
+
+/**
+ * Every habit over the eight periods ending with this one, for the sparklines.
+ * All the drives are already in memory, so this simply measures them again per
+ * period - once for all the cards, not once for each.
+ */
+function habitHistory(drives) {
+  const periods = [];
+  for (let at = start, k = 0; k < (kind === "all" ? 1 : PERIODS); k++, at = previousStart(kind, at)) periods.unshift(habitCards(inPeriod(drives, kind, at)));
+  return periods;
+}
+
+/**
+ * A line through the periods, drawn as SVG - a sparkline needs no chart library.
+ * A period with nothing to show is skipped, not left as a gap.
+ */
+function spark(values, least = 2) {
+  const known = values.filter(v => v != null && Number.isFinite(v));
+  if (known.length < least) return "";
+  const low = Math.min(...known), high = Math.max(...known), span = high - low;
+  // Nothing changed across the periods: a flat line down the middle, not one pinned to the floor.
+  const y = v => span ? 19 - (v - low) / span * 18 : 10;
+  const points = values.map((v, i) => v == null || !Number.isFinite(v) ? null :
+    `${(i / (values.length - 1) * 100).toFixed(2)},${y(v).toFixed(2)}`).filter(Boolean);
+  return `<svg class="spark" viewBox="0 0 100 20" preserveAspectRatio="none" aria-hidden="true"><polyline points="${points.join(" ")}"/></svg>`;
+}
+
+/**
+ * How this period's figure sits against the four before it, as the Summary
+ * tiles do. Periods with nothing to show are left out rather than counted as
+ * nought - a week away from the car is not a week of perfect driving.
+ *
+ * A figure with no better direction - how often the car was plugged in, how
+ * many kWh went into it - still gets the comparison, in the Summary tiles'
+ * neutral grey. Three charges against two is worth knowing whichever way the
+ * driver reads it; what it is not is a verdict.
+ */
+function arrow(card, history) {
+  const t = trendVs(card.value, history.slice(-5, -1).map(p => p.cards.find(c => c.key === card.key)?.value), kind, card.better);
+  return t ? `<span class="${trendClass(t)}">${t.text}</span>` : "";
+}
+
+const at = ymdhm;
+
+/**
+ * The player, showing a whole stretch of driving rather than a moment in it: the span goes in the link,
+ * so the charts open on the drive and not on two minutes of it. A moment's link carries only `at`.
+ */
+const playerHref = (fileIds, from, to) =>
+  `index.html?drive=${fileIds.map(encodeURIComponent).join(",")}&at=${encodeURIComponent(Math.round(from))}` +
+  `&from=${encodeURIComponent(Math.round(from))}&to=${encodeURIComponent(Math.round(to))}`;
+
+const SHOW_MOMENTS = 50;
+
+/** Worst first, each with the second of the drive it happened in, for the player to jump to. */
+const momentTable = card => !card.moments?.length ? "" :
+  `<details><summary>Show the moments (${card.moments.length > SHOW_MOMENTS ? `worst ${SHOW_MOMENTS} of ${card.moments.length}` : card.moments.length})</summary>
+    <div class="scroll"><table><tr><th>When</th><th>km/h</th><th>${esc(card.momentHead)}</th><th></th></tr>` +
+  card.moments.slice(0, SHOW_MOMENTS).map(m => `<tr><td>${esc(at(m.at))}</td><td>${fmt(m.speed, 0)}</td><td>${card.momentValue(m)}</td>
+    <td><a href="index.html?drive=${encodeURIComponent(m.fileId)}&amp;at=${encodeURIComponent(Math.round(m.at))}">Open</a></td></tr>`).join("") +
+  `</table></div></details>`;
+
+/** One figure, how it moved, and the moments behind it - the same card for a habit and for the pack. */
+const cardHtml = (card, history, least = 2) => `<div class="habit ${card.verdict ?? ""}">
+  <span class="limit">${esc(card.label)}</span>
+  <b>${card.figure}</b><span class="limit">${esc(card.unit)}</span>
+  ${arrow(card, history)}
+  ${spark(history.map(period => period.cards.find(c => c.key === card.key)?.value ?? null), least)}
+  <span class="limit">${esc(card.limit)}</span>
+  ${card.note ? `<span class="note">${esc(card.note)}</span>` : ""}
+  ${momentTable(card)}</div>`;
+
+function showHabits(drives) {
+  const history = habitHistory(drives);
+  const { cards, bands, unmeasured } = history[history.length - 1];
+  const draw = card => cardHtml(card, history);
+  const group = (title, of) => {
+    const chosen = cards.filter(of);
+    return chosen.length ? `<h3>${title}</h3><div class="habits">${chosen.map(draw).join("")}</div>` : "";
+  };
+  $("habits").innerHTML =
+    (unmeasured > 0.05 ? `<p class="muted">${fmt(unmeasured, 0)} km of this period is not counted here: those logs
+      carry no readings of their own, or were measured with other calibration constants and their file is no longer stored.</p>` : "") +
+    group("Doing well", c => c.verdict === "good") +
+    group("Worth changing", c => c.verdict === "bad") +
+    group("Worth knowing", c => !c.verdict);
+
+  const label = i => i === SPEED_BANDS.length - 1 ? `${SPEED_BANDS[i]}+` : `${SPEED_BANDS[i]}–${SPEED_BANDS[i + 1]}`;
+  $("bands").innerHTML = `<tr><th>km/h</th><th>km</th><th>Driving</th><th>kWh</th><th>kWh/100 km</th></tr>` +
+    bands.map((b, i) => b.seconds < 1 ? "" : `<tr><td>${label(i)}</td><td>${fmt(b.km, 1)}</td><td>${hours(b.seconds)}</td>
+      <td>${b.energyKm > 0.05 ? fmt(b.energy, 2) : "–"}</td>
+      <td>${b.energyKm > 0.05 ? fmt(b.energy / b.energyKm * 100, 1) : "–"}</td></tr>`).join("");
+}
+
+// ---------- battery ----------
+
+/**
+ * What a period's drives say about the pack. Cell figures are weighted by the
+ * readings behind them, so a drive the car answered twice never outweighs one
+ * it answered fifty times.
+ */
+function batteryTotals(list) {
+  const t = {
+    lowCharge: [], lowChargeKnown: false, jumps: [], jumpsKnown: false, hardPulls: [], hardPullsKnown: false,
+    cellSum: null, cellReadings: 0,
+    spreadSum: SOC_BANDS.map(() => 0), spreadReadings: SOC_BANDS.map(() => 0),
+    // The types are written in somebody's file, so the counts have no prototype - as in eventCounts().
+    sohList: [], auxList: [], carEvents: Object.create(null),
+  };
+  // Every moment carries the drive it happened in, for the player link the card's table hangs off.
+  const from = (s, moments) => moments.map(m => ({ ...m, fileId: s.fileId }));
+  for (const s of list) {
+    // A summary written before the pack was measured, whose file is no longer stored to rebuild it from.
+    const b = s.battery;
+    if (!b) continue;
+    if (b.lowCharge) {
+      t.lowChargeKnown = true;
+      t.lowCharge.push(...from(s, b.lowCharge));
+    }
+    if (b.jumps) {
+      t.jumpsKnown = true;
+      t.jumps.push(...from(s, b.jumps));
+    }
+    if (b.hardPulls) {
+      t.hardPullsKnown = true;
+      t.hardPulls.push(...from(s, b.hardPulls));
+    }
+    // A pack of another size is another car: its cells are not these cells.
+    if (b.cells && (t.cellSum ??= new Array(b.cells.mv.length).fill(0)).length === b.cells.mv.length) {
+      b.cells.mv.forEach((v, k) => { t.cellSum[k] += v * b.cells.readings; });
+      t.cellReadings += b.cells.readings;
+    }
+    b.cellSpread?.forEach((band, i) => {
+      if (band.mv == null) return;
+      t.spreadSum[i] += band.mv * band.readings;
+      t.spreadReadings[i] += band.readings;
+    });
+    if (s.soh != null) t.sohList.push(s.soh);
+    if (s.aux12vStart != null) t.auxList.push(s.aux12vStart);
+    for (const [type, n] of Object.entries(b.carEvents ?? {})) t.carEvents[type] = (t.carEvents[type] ?? 0) + n;
+  }
+  const mean = a => a.length ? a.reduce((x, y) => x + y, 0) / a.length : null;
+  return {
+    ...t,
+    cellMv: t.cellReadings ? t.cellSum.map(v => v / t.cellReadings) : null,
+    spreadMv: t.spreadSum.map((v, i) => t.spreadReadings[i] ? v / t.spreadReadings[i] : null),
+    soh: mean(t.sohList), aux: mean(t.auxList),
+  };
+}
+
+/**
+ * The pack of one period, judged against the limits of the moment. Both weak-pack
+ * measures are stored as the stretches under their detection floors, so every one
+ * of these limits is a sum here: moving one costs a redraw, not a re-import.
+ */
+function batteryCards(list) {
+  const t = batteryTotals(list), cards = [];
+  const seconds = moments => moments.reduce((x, m) => x + m.seconds, 0);
+
+  // A part point of charge belongs to the point below it, as the stretches are cut: "under 4.5 %" is the
+  // stretches at 0 to 3, and the field's step is 1, so nothing a driver can type is lost.
+  const empty = !t.lowChargeKnown ? null
+    : t.lowCharge.filter(m => m.soc < Math.floor(limits.lowSocPercent)).sort((a, b) => a.soc - b.soc || b.seconds - a.seconds);
+  const low = empty && seconds(empty);
+
+  cards.push({
+    key: "lowSoc", label: "Driving on an empty pack", better: "lower", value: low == null ? null : low / 60,
+    figure: low == null ? "–" : duration(low), unit: `under ${fmt(limits.lowSocPercent, 0)} % of charge`,
+    limit: "a pack is happiest kept off the floor",
+    verdict: low == null ? null : low > 0 ? "bad" : "good",
+    note: low == null ? "these logs carry no charge reading"
+      : low > 0 ? `${fmt(empty.reduce((x, m) => x + m.km, 0), 1)} km of it` : null,
+    moments: empty ?? [], momentHead: "% of charge",
+    momentValue: m => `${fmt(m.soc, 0)} <span class="muted">(${duration(m.seconds)}, ${fmt(m.km, 1)} km)</span>`,
+  });
+
+  cards.push({
+    key: "jumps", label: "Charge jumps", better: "lower", value: t.jumpsKnown ? t.jumps.length : null,
+    figure: t.jumpsKnown ? fmt(t.jumps.length, 0) : "–", unit: t.jumps.length === 1 ? "jump the energy cannot explain" : "jumps the energy cannot explain",
+    limit: "the BMS moving 2 points or more on its own",
+    verdict: !t.jumpsKnown ? null : t.jumps.length ? "bad" : "good",
+    note: t.jumpsKnown ? null : "these logs carry no charge reading",
+    moments: [...t.jumps].sort((a, b) => Math.abs(b.value) - Math.abs(a.value)),
+    momentHead: "points", momentValue: m => `${fmt(m.value, 1)} <span class="muted">(${fmt(m.before, 0)} → ${fmt(m.after, 0)} %)</span>`,
+  });
+
+  // Either half of "weak" is enough, and a half the log cannot know is not a half that passes.
+  const weak = m => (m.packC != null && m.packC < limits.coldPackC) || (m.soc != null && m.soc < limits.weakPackSoc);
+  const pulls = !t.hardPullsKnown ? null
+    : t.hardPulls.filter(m => m.kw > limits.hardPullKw && weak(m)).sort((a, b) => b.kw - a.kw);
+  const pulled = pulls && seconds(pulls);
+
+  cards.push({
+    key: "hardPull", label: "Hard pulls on a weak pack", better: "lower",
+    value: pulled == null ? null : pulled / 60,
+    figure: pulled == null ? "–" : duration(pulled), unit: `above ${fmt(limits.hardPullKw, 0)} kW`,
+    limit: `while the pack is under ${fmt(limits.coldPackC, 0)} °C or under ${fmt(limits.weakPackSoc, 0)} % of charge`,
+    verdict: pulled == null ? null : pulled > 0 ? "bad" : "good",
+    note: pulled == null ? "these logs carry no power, temperature or charge" : null,
+    moments: pulls ?? [], momentHead: "kW",
+    momentValue: m => `${fmt(m.kw, 0)} <span class="muted">(${duration(m.seconds)}${
+      m.packC == null ? "" : `, ${fmt(m.packC, 0)} °C`}${m.soc == null ? "" : `, ${fmt(m.soc, 0)} %`})</span>`,
+  });
+
+  const events = Object.entries(t.carEvents).sort((a, b) => b[1] - a[1]);
+  if (events.length) cards.push({
+    key: "carEvents", label: "The car's own events", value: null,
+    figure: fmt(events.reduce((n, [, v]) => n + v, 0), 0), unit: "written into the logs",
+    limit: events.map(([type, n]) => `${n} ${type}`).join(", "), verdict: null,
+  });
+  return { cards, ...t };
+}
+
+const batteryHistory = drives => {
+  const periods = [];
+  for (let at = start, k = 0; k < (kind === "all" ? 1 : PERIODS); k++, at = previousStart(kind, at)) {
+    periods.unshift({ at, ...batteryCards(inPeriod(drives, kind, at)) });
+  }
+  return periods;
+};
+
+// The accent first: one series is the page's own colour, and the rest are told apart beside it.
+const SERIES_COLOURS = ["#fc4c02", "#1f77b4", "#1f9d55", "#8250df", "#8a6d00"];
+let batteryCharts = [];   // uPlot instances, one per trend
+let cellChoice = "weakest";
+
+// Each chart is watched, not the section around them: the section's width never changes when the cards
+// reflow between one column and two, and a chart's does. uPlot keeps every live instance in a module-level
+// Set and only drops it in destroy(), where its window listeners go too - one of them a capture-phase
+// scroll handler that measures every instance ever made on every scroll of the page. Each section keeps
+// its own watcher, so redrawing one never unwatches another's charts.
+const watchWidth = live => typeof ResizeObserver === "undefined" ? null : new ResizeObserver(entries => {
+  for (const e of entries) {
+    const u = live().find(chart => chart.root.parentNode === e.target);
+    if (u && e.target.clientWidth) u.setSize({ width: e.target.clientWidth, height: u.height });
+  }
+});
+const chartSizes = watchWidth(() => batteryCharts);
+
+/**
+ * The panel a chart sits in: a title, the box the picture goes into, the key and
+ * the captions that carry its figures. Drawn whether or not a chart follows it,
+ * so a page that cannot reach the CDN keeps every figure and loses only the
+ * picture. [body] fills the picture box when there is no chart to draw - a
+ * compact picture from stats/tabs-view.js, already escaped - and [key] is a
+ * plainKey(). The title and the captions are escaped here: nothing may put a
+ * value from a GPX into the page as markup. Returns the picture box, which is
+ * what a chart is drawn into and sized by.
+ */
+function chartBox(host, title, { captions = [], key = "", body = "", control = null } = {}) {
+  const holder = document.createElement("div");
+  holder.innerHTML = panel(title, `<div class="plot">${body}</div>${key}` +
+    [captions].flat().map(caption => `<span class="note">${esc(caption)}</span>`).join(""));
+  const box = holder.firstElementChild;
+  box.classList.add("chart");
+  if (control) box.querySelector("h2").append(control);
+  host.append(box);
+  return box.querySelector(".plot");
+}
+
+/**
+ * One uPlot into a box already drawn, watched for width, or nothing at all when
+ * the CDN did not answer. The options are a function because a caller's may name
+ * uPlot itself, and a page without it must not read them.
+ *
+ * The card's own width, with no floor under it: a floor wider than a phone scrolls the page sideways.
+ * Nought only while the section is hidden, and the observer gives the chart its width the moment it is not.
+ */
+function chartInto(div, watcher, options, data) {
+  if (typeof uPlot === "undefined") return null;
+  watcher?.observe(div);
+  return new uPlot({
+    width: div.clientWidth || 260, height: 170,
+    legend: { show: false }, cursor: { points: { size: 6 } },
+    ...options(),
+  }, data, div);
+}
+
+/**
+ * One trend across the periods, [series] naming its lines in the key and [unit]
+ * saying what they measure. The caption carries the figures, so a page that
+ * cannot reach the CDN still prints what the pack is doing and simply leaves the
+ * chart out.
+ */
+function trendChart(title, { captions, control, unit }, xs, series, data) {
+  const key = plainKey(series.map((label, k) => ({ colour: SERIES_COLOURS[k % SERIES_COLOURS.length], label })), unit);
+  const div = chartBox($("batteryCharts"), title, { captions, control, key });
+  if (xs.length < 2 || !data.some(a => a.some(v => v != null))) return;
+  const u = chartInto(div, chartSizes, () => ({
+    // A pack drifts by tenths: an axis pinned to nought would draw every trend as a flat line.
+    scales: { x: { time: true }, y: { range: (u, lo, hi) => { const pad = (hi - lo) * 0.15 || 1; return [lo - pad, hi + pad]; } } },
+    axes: [{ grid: { stroke: "#eee" } }, { size: 54, grid: { stroke: "#eee" } }],
+    series: [{ value: (u, v) => v == null ? "–" : periodOf(v * 1000) }, ...series.map((label, k) => ({
+      label, stroke: SERIES_COLOURS[k % SERIES_COLOURS.length], width: 1.5, spanGaps: true,
+      points: { show: true, size: 5 }, value: (u, v) => v == null ? "–" : fmt(v, 1),
+    }))],
+  }), [xs, ...data]);
+  if (u) batteryCharts.push(u);
+}
+
+/** A period on a chart is named by its first day - a week has no single date. */
+const periodOf = ymd;
+
+/** The cells with the lowest mean over the window, weakest first. */
+function weakestCells(history) {
+  const known = history.filter(p => p.cellMv);
+  if (!known.length) return [];
+  const sum = new Array(known[known.length - 1].cellMv.length).fill(0), weight = new Array(sum.length).fill(0);
+  for (const p of known) p.cellMv.forEach((v, k) => { if (k < sum.length) { sum[k] += v * p.cellReadings; weight[k] += p.cellReadings; } });
+  return sum.map((v, k) => ({ cell: k + 1, mv: weight[k] ? v / weight[k] : 0 })).sort((a, b) => a.mv - b.mv);
+}
+
+/** A change with its sign, and a true minus sign: "+0.4", "−1.2". */
+const signed = (v, dec) => (v > 0 ? "+" : "") + fmt(v, dec).replace("-", "−");
+
+/**
+ * The pack's big numbers for the period, then its charts. A chart with fewer
+ * than three periods of readings would be a dot or two on an empty grid, so it
+ * shows the period's own values as bars until the lines have something to say;
+ * the state of health and the 12 V battery are big numbers already, and get a
+ * chart only once they have a trend.
+ */
+function showBattery(drives) {
+  const history = batteryHistory(drives);
+  const now = history[history.length - 1];
+  const words = thisPeriod(kind);
+  // The note the thin pictures end on: when the lines take over.
+  const linesAfter = kind === "all" ? "Choose Week or Month to see it change over time."
+    : `${kind === "week" ? "Week-by-week" : "Month-by-month"} lines appear after 3 ${kind}s.`;
+
+  const soh = history.map(p => p.soh);
+  const sohKnown = soh.filter(v => v != null).length;
+  const earlier = soh.slice(-5, -1).filter(v => v != null);
+  const usual = earlier.length ? earlier.reduce((a, b) => a + b, 0) / earlier.length : null;
+  const sohNote = now.soh == null ? "not in these logs"
+    : kind === "all" ? "the mean of every reading"
+    : thin(soh) ? `${sohKnown === 1 ? "first reading" : `${sohKnown} ${kind}s of readings`} — trend after 3 ${kind}s`
+    : usual == null ? "nothing in the 4 periods before to compare with"
+    : Math.abs(now.soh - usual) < 0.05 ? "as usual" : `${signed(now.soh - usual, 1)} points against the usual`;
+  // This period's own cells, weakest first - what the "Weakest cell" number and the thin panel below both read from.
+  const nowRanked = now.cellMv?.map((mv, k) => ({ cell: k + 1, mv })).sort((a, b) => a.mv - b.mv) ?? [];
+  const weakest = nowRanked[0];
+  const low = now.cards.find(c => c.key === "lowSoc");
+  $("batteryStats").innerHTML = statRow([
+    { label: "State of health", value: now.soh == null ? null : fmt(now.soh, 1), unit: "%", note: sohNote },
+    // No limit judges a cell, so its dot is green: the figure is there to be watched, not to alarm.
+    { label: "Weakest cell", value: weakest ? signed(weakest.mv, 1) : null, unit: "mV", tone: weakest ? "good" : null,
+      note: weakest ? `#${weakest.cell}, ${weakest.mv < 0 ? "below" : "not below"} the pack average` : "no cell readings in this period" },
+    { label: "12 V battery", value: now.aux == null ? null : fmt(now.aux, 2), unit: "V",
+      note: now.aux == null ? "not in these logs" : "at the start of a drive" },
+    { label: "On an empty pack", value: low.value == null ? null : low.figure, tone: low.verdict,
+      note: low.value == null ? low.note : [low.unit, low.note].filter(Boolean).join(" · ") },
+  ]);
+  // Every card folds away, the empty-pack one too: its moments and their Open links live only there.
+  $("batteryMore").querySelector("summary").textContent = now.cards
+    .map((c, i) => `${i ? c.label[0].toLowerCase() + c.label.slice(1) : c.label} (${c.figure})`).join(", ");
+  $("batteryCards").innerHTML = now.cards.map(card => cardHtml(card, history, 3)).join("");
+
+  chartSizes?.disconnect();
+  for (const u of batteryCharts) u.destroy();
+  $("batteryCharts").replaceChildren();
+  batteryCharts = [];
+  const xs = history.map(p => p.at / 1000);
+
+  const ranked = weakestCells(history);
+  const control = document.createElement("select");
+  control.setAttribute("aria-label", "Which cells to follow");
+  control.innerHTML = `<option value="weakest">The three weakest</option>` +
+    ranked.map(r => r.cell).sort((a, b) => a - b).map(cell => `<option value="${cell}">Cell #${cell}</option>`).join("");
+  if (!ranked.some(r => String(r.cell) === cellChoice)) cellChoice = "weakest";
+  control.value = cellChoice;
+  control.addEventListener("change", () => { cellChoice = control.value; render(); });
+  const chosen = cellChoice === "weakest" ? ranked.slice(0, 3).map(r => r.cell) : [Number(cellChoice)];
+  if (thin(history.map(p => p.cellMv ? 1 : null))) {
+    // The thin panel shows this period's own numbers, so "the three weakest" means this period's, not the
+    // long-term ranking `chosen` carries; fall back to that ranking only when this period has no reading.
+    const thinChosen = cellChoice === "weakest"
+      ? (nowRanked.length ? nowRanked.slice(0, 3).map(r => r.cell) : chosen)
+      : chosen;
+    chartBox($("batteryCharts"), `Weakest cells, ${words}`, {
+      control,
+      body: valueBars(thinChosen.map(cell => ({ label: `#${cell}`, value: now.cellMv?.[cell - 1] ?? null })), { unit: "mV" }),
+      captions: ranked.length ? `mV against the pack average. ${linesAfter}` : "No cell readings in these periods.",
+    });
+  } else {
+    trendChart(`Weakest cells, by ${kind}`, {
+      control, unit: "mV against the pack average",
+      captions: chosen.map(cell => `#${cell} ${fmt(ranked.find(r => r.cell === cell).mv, 1)} mV`).join(" · ") + " over these periods",
+    }, xs, chosen.map(cell => `#${cell}`), chosen.map(cell => history.map(p => p.cellMv?.[cell - 1] ?? null)));
+  }
+
+  const bandLabel = i => i === SOC_BANDS.length - 1 ? `${SOC_BANDS[i]}–100 %` : `${SOC_BANDS[i]}–${SOC_BANDS[i + 1]} %`;
+  if (thin(history.map(p => p.spreadMv.some(v => v != null) ? 1 : null))) {
+    chartBox($("batteryCharts"), `Cell spread by charge, ${words}`, {
+      body: valueBars(now.spreadMv.map((mv, i) => ({ label: bandLabel(i), value: mv })), { unit: "mV" }),
+      captions: "Gap between the highest and lowest cell while resting. A low pack spreads wider, " +
+        `so compare each range with itself. ${linesAfter}`,
+    });
+  } else {
+    const spreadNow = now.spreadMv.map((v, i) => v == null ? null : `${bandLabel(i)} ${fmt(v, 1)} mV`).filter(Boolean);
+    trendChart(`Cell spread by charge, by ${kind}`, {
+      unit: "mV between the highest and lowest cell at rest",
+      captions: spreadNow.length ? spreadNow.join(" · ") : "no resting reading in this period",
+    }, xs, SOC_BANDS.map((_, i) => bandLabel(i)), SOC_BANDS.map((_, i) => history.map(p => p.spreadMv[i])));
+  }
+
+  if (!thin(soh)) trendChart("State of health", {
+    unit: "%", captions: now.soh == null ? "not in these logs" : `${fmt(now.soh, 1)} % now`,
+  }, xs, ["state of health"], [soh]);
+  if (!thin(history.map(p => p.aux))) trendChart("12 V at the start of a drive", {
+    unit: "V", captions: now.aux == null ? "not in these logs" : `${fmt(now.aux, 2)} V now`,
+  }, xs, ["12 V battery"], [history.map(p => p.aux)]);
+}
+
+// ---------- charging ----------
+
+/**
+ * The charges of one period. The whole of the charge reading happens here at
+ * draw time, out of the stored summaries: what counts as a charge, and what
+ * counts as DC, moves with the limits and never with a re-import.
+ */
+function chargeCards(charges, perPoint) {
+  const kwh = charges.reduce((x, c) => x + c.kwh, 0);
+  const dc = charges.filter(c => c.dc).length;
+  const moved = charges.filter(c => c.moved).length;
+  const fastest = charges.reduce((x, c) => c.kw != null && (x == null || c.kw > x) ? c.kw : x, null);
+  return [{
+    key: "charges", label: "Charges found", value: charges.length, figure: fmt(charges.length, 0),
+    unit: charges.length === 1 ? "gap the charge rose across" : "gaps the charge rose across",
+    limit: `a rise of ${fmt(limits.chargeRise, 0)} points or more between two drives`, verdict: null,
+    note: !charges.length ? null :
+      `${dc} on DC, ${charges.length - dc} on AC` + (moved ? `, ${moved} where the car had been moved in between` : ""),
+  }, {
+    key: "chargeKwh", label: "Energy added", value: kwh, figure: fmt(kwh, 1), unit: "kWh into the pack",
+    limit: `${fmt(perPoint.kwh, 3)} kWh a point of charge`, verdict: null,
+    // Wall losses happen outside the car, so no log can see them: a charger's own meter always reads higher.
+    note: perPoint.learned ? `learned from ${plural(perPoint.drives, "drive")}, at the pack and not at the wall`
+      : `the default, until three drives have used five points or more (${fmt(perPoint.drives, 0)} so far)`,
+  }, {
+    key: "chargeKw", label: "Fastest charge", value: fastest, figure: fastest == null ? "–" : fmt(fastest, 1),
+    unit: "kW at best", limit: `DC from ${fmt(limits.dcKw, 0)} kW up`, verdict: null,
+    note: "conservative: averaged over the whole gap, parking included",
+  }];
+}
+
+/** A charge belongs to the period it happened in, which is the gap and not either drive. */
+const chargesIn = (charges, from) => kind === "all" ? charges
+  : charges.filter(c => c.at >= from && c.at < nextStart(kind, from));
+
+const chargeHistory = (all, perPoint) => {
+  const periods = [];
+  for (let from = start, k = 0; k < (kind === "all" ? 1 : PERIODS); k++, from = previousStart(kind, from)) {
+    periods.unshift({ cards: chargeCards(chargesIn(all, from), perPoint) });
+  }
+  return periods;
+};
+
+/**
+ * Every charge of the period, newest driving last, each with the drive it followed for the player to open.
+ * A charge the car was driven away from is still listed, and says why the curve leaves it out.
+ */
+const chargeTable = charges => `<div class="scroll"><table><tr><th>When</th><th>Charge</th><th>kWh</th><th>kW</th><th>Stop</th><th></th></tr>` +
+  charges.map(c => `<tr><td>${esc(dayTime(c.at))}</td><td>${fmt(c.from, 0)} → ${fmt(c.to, 0)} %</td>
+    <td>${fmt(c.kwh, 1)}</td><td>${c.kw == null ? "–" : fmt(c.kw, 1)} ${c.dc ? "DC" : "AC"}</td>
+    <td>${hours(c.hours * 3600)}${c.moved ? ` <span class="muted">· moved ${fmt(c.movedM / 1000, 1)} km, off the curve</span>` : ""}</td>
+    <td><a href="index.html?drive=${encodeURIComponent(c.fileId)}&amp;at=${encodeURIComponent(Math.round(c.at))}">Open</a></td></tr>`).join("") +
+  `</table></div>`;
+
+let chargeMap = null, chargePins = null;
+
+/** The places the car was plugged in. Without the CDN the section keeps every figure and loses only the picture. */
+function showChargeMap(places) {
+  const box = $("chargeMap");
+  box.hidden = !places.length || typeof L === "undefined";
+  if (box.hidden) return;
+  if (!chargeMap) {
+    chargeMap = L.map(box, { preferCanvas: true });
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    }).addTo(chargeMap);
+    chargePins = L.layerGroup().addTo(chargeMap);
+  }
+  chargePins.clearLayers();
+  for (const c of places) {
+    L.circleMarker([c.lat, c.lon], { radius: 7, color: "#fff", weight: 2, fillColor: c.dc ? "#fc4c02" : "#1f77b4", fillOpacity: 1 })
+      .bindPopup(`${esc(at(c.at))}<br>${fmt(c.from, 0)} → ${fmt(c.to, 0)} %, ${fmt(c.kwh, 1)} kWh<br>${
+        c.kw == null ? "–" : fmt(c.kw, 1)} kW ${c.dc ? "DC" : "AC"}`).addTo(chargePins);
+  }
+  // The map is built while its box is still hidden on the first draw, so it has to be told its size -
+  // before it fits the bounds, because invalidateSize() keeps whatever zoom it worked out against the
+  // wrong box and fitBounds() is the call that needs the right one.
+  chargeMap.invalidateSize();
+  chargeMap.fitBounds(L.latLngBounds(places.map(c => [c.lat, c.lon])).pad(0.3), { maxZoom: 14 });
+}
+
+let curveChart = null;
+const curveSizes = watchWidth(() => curveChart ? [curveChart] : []);
+
+/**
+ * The runs of the curve with no data: shaded before the grid is drawn, and named
+ * after the line is, so nothing crosses the words. A name goes in the middle of
+ * its shade on one line, on two, or not at all when even two do not fit - the
+ * caption names every band either way. The canvas counts device pixels, so the
+ * text is sized by the pixel ratio uPlot draws at.
+ */
+function shadeGaps(u, gaps, words) {
+  const { ctx } = u, { top, height } = u.bbox, px = devicePixelRatio || 1;
+  ctx.save();
+  ctx.font = `${11 * px}px system-ui, sans-serif`;
+  ctx.textAlign = "center";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = words ? "#6d6d78" : "#f5f5f3";
+  for (const g of gaps) {
+    const x0 = u.valToPos(g.from, "x", true), x1 = u.valToPos(g.to, "x", true);
+    if (!words) { ctx.fillRect(x0, top, x1 - x0, height); continue; }
+    const label = gapLabel(g);
+    const lines = [[label], ["no data", label.slice("no data ".length)]]
+      .find(ls => ls.every(l => ctx.measureText(l).width < x1 - x0 - 8 * px)) ?? [];
+    lines.forEach((l, i) => ctx.fillText(l, (x0 + x1) / 2, top + height / 2 + (i - (lines.length - 1) / 2) * 14 * px));
+  }
+  ctx.restore();
+}
+
+/**
+ * How fast the car charges, band by band. The caption carries every figure, so
+ * a page that cannot reach the CDN still says what the curve knows - including
+ * which bands it knows nothing about, which is what the planner runs into.
+ */
+/** Drops the curve chart and its box, so an old chart's resize listener never outlives the data it drew. */
+function clearCurve() {
+  curveSizes?.disconnect();
+  curveChart?.destroy();
+  curveChart = null;
+  $("chargeCurve").replaceChildren();
+}
+
+function showCurve(curve, used) {
+  clearCurve();
+  const figures = curve.map(b => `${b.from}–${b.to} % ` +
+    (b.kw == null ? "no data" : `${fmt(b.kw, 0)} kW (${plural(b.charges, "charge")})`)).join(" · ");
+  const known = curve.some(b => b.kw != null), gaps = curveGaps(curve);
+  const div = chartBox($("chargeCurve"), "Charging curve, all drives", {
+    captions: [
+      used ? `${plural(used, "DC charge")} of under ${fmt(limits.chargeGapHours, 0)} h, in one place. Conservative: includes time parked.`
+        : `No DC charge on record: a charge counts as DC from ${fmt(limits.dcKw, 0)} kW up, averaged over the whole gap.`,
+      figures,
+    ],
+    key: known ? plainKey([{ colour: SERIES_COLOURS[0], label: "kW, band by band of charge" }],
+      gaps.length ? "shaded: no charge on record there" : "") : "",
+  });
+  if (!known) return;
+  curveChart = chartInto(div, curveSizes, () => ({
+    hooks: { drawClear: [u => shadeGaps(u, gaps, false)], draw: [u => shadeGaps(u, gaps, true)] },
+    scales: { x: { time: false, range: [0, 100] }, y: { range: (u, lo, hi) => [0, hi * 1.1 || 1] } },
+    axes: [{ grid: { stroke: "#eee" }, values: (u, vs) => vs.map(v => `${v} %`) },
+      { size: 54, grid: { stroke: "#eee" }, values: (u, vs) => vs.map(v => `${v} kW`) }],
+    // The page's accent as a literal: a chart is drawn on a canvas, and a CSS variable is not a colour there.
+    series: [{ value: (u, v) => v == null ? "–" : `${fmt(v, 0)} %` }, {
+      label: "kW", stroke: SERIES_COLOURS[0], width: 2, spanGaps: false, points: { show: false },
+      value: (u, v) => v == null ? "no data" : `${fmt(v, 1)} kW`,
+    }],
+    // A band is a step and not a slope: the curve says one kW for the whole of it, and a line sloping
+    // between the bands would draw a precision no charge on record has. Each band is therefore given both
+    // of its ends, which walks the line as a staircase and leaves a gap where a band has nothing to say -
+    // uPlot's own stepped path would drop a band whose neighbour above it is empty.
+  }), [curve.flatMap(b => [b.from, b.to]), curve.flatMap(b => [b.kw, b.kw])]);
+}
+
+// The two speeds of the coach's "Brisk or gentle?" block, kept in this browser as the driver left them.
+// A stored value is somebody else's writing: only a whole speed in range is taken, the rest falls back.
+const PULL_KEY = "coachPull";
+let pullRange = { ...PULL_RANGE };
+try {
+  const kept = JSON.parse(localStorage.getItem(PULL_KEY)) ?? {};
+  for (const key of ["from", "to"]) {
+    if (Number.isFinite(kept[key]) && kept[key] >= 0 && kept[key] <= SPEED_CEILING) pullRange[key] = Math.round(kept[key]);
+  }
+} catch {}
+function keepPull(range) {
+  pullRange = range;
+  try { localStorage.setItem(PULL_KEY, JSON.stringify(range)); } catch {}
+}
+
+// The trip is kept in this browser as the driver left it, the temperature only once typed: until then it
+// follows the period being shown. Storage can be missing or refuse (a private window), and the planner then
+// starts from the defaults each time the page opens.
+const TRIP_KEY = "tripPlanner";
+// A distance a Honda e cannot do on one charge: the planner has nothing to say about a trip that needs no stop.
+let trip = { km: 300, socStart: 100, socMin: 5, stopMinutes: 5, temp: null };
+let speedsText = "";
+let tempTyped = false;      // until the driver types one, the temperature follows the period being shown
+let tripSource = null;
+try {
+  const kept = JSON.parse(localStorage.getItem(TRIP_KEY)) ?? {};
+  for (const key of Object.keys(trip)) if (Number.isFinite(kept[key])) trip[key] = kept[key];
+  tempTyped = Number.isFinite(kept.temp);
+  if (typeof kept.speeds === "string") speedsText = kept.speeds;
+} catch {}
+
+function keepTrip() {
+  const { temp, ...rest } = trip;
+  try {
+    localStorage.setItem(TRIP_KEY, JSON.stringify({ ...rest, ...(tempTyped ? { temp } : {}), speeds: speedsText }));
+  } catch {}
+}
+
+function showTrip() {
+  if (!tripSource) return;
+  drawTrip($("tripPlanner"), { ...tripSource, calibration, trip, speedsText });
+}
+
+// Typing redraws the results alone - drawTrip() leaves a form already there as it is - so the focus stays put.
+$("tripPlanner").addEventListener("input", e => {
+  const key = e.target.dataset.trip;
+  if (!key) return;
+  if (key === "speeds") speedsText = e.target.value;
+  else {
+    const typed = Number(e.target.value);
+    if (key === "temp") tempTyped = e.target.value !== "";
+    trip = { ...trip, [key]: e.target.value !== "" && Number.isFinite(typed) ? typed : null };
+  }
+  keepTrip();
+  showTrip();
+});
+
+/** The charges and the curve over every drive stored: the Charging tab draws them and the Trip tab plans on them. */
+function chargingOf(drives) {
+  const perPoint = learnKwhPerPoint(drives);
+  const all = findCharges(drives, limits, perPoint.kwh);
+  const used = curveCharges(all, limits);
+  return { perPoint, all, used, curve: chargingCurve(used) };
+}
+
+/** Why the whole of the stored drives carry no charge at all - the sentence shown instead of an empty curve and list. */
+const noChargeLine = drives => {
+  const missing = noSocCount(drives);
+  return missing
+    ? `No charge found — ${fmt(missing, 0)} of ${fmt(drives.length, 0)} drives carry no charge level (their logs were written with Extended data off).`
+    : "No charge found in these drives.";
+};
+
+function showCharging(drives) {
+  const { perPoint, all, used, curve } = chargingOf(drives);
+  const history = chargeHistory(all, perPoint);
+  const here = chargesIn(all, start);
+  const places = here.filter(c => Number.isFinite(c.lat) && Number.isFinite(c.lon));
+  // How a count or an amount moved: neither way is better, so the arrow stays grey.
+  const valueOf = (period, key) => period.cards.find(c => c.key === key).value;
+  const trend = key => trendVs(valueOf(history[history.length - 1], key), history.slice(-5, -1).map(p => valueOf(p, key)), kind);
+  const dc = here.filter(c => c.dc).length;
+  const fastest = here.filter(c => c.kw != null).sort((a, b) => b.kw - a.kw)[0];
+  const added = trend("chargeKwh"), cover = curveCover(curve);
+  $("chargeStats").innerHTML = statRow([
+    { label: "Charges", value: fmt(here.length, 0), note: `${dc} DC · ${here.length - dc} AC`, trend: trend("charges") },
+    { label: "Energy added", value: fmt(valueOf(history[history.length - 1], "chargeKwh"), 1), unit: "kWh",
+      note: added ? null : "into the pack, not from the wall", trend: added },
+    { label: "Fastest", value: fastest ? fmt(fastest.kw, 1) : null, unit: "kW",
+      note: fastest ? `${fastest.dc ? "DC" : "AC"} · averaged over the whole stop` : "no charge in this period" },
+    { label: "Curve covers", value: cover.value, note: [cover.note, "all drives"].filter(Boolean).join(" · ") },
+  ]);
+  $("chargeRow").hidden = !here.length;
+  // With nothing at all found, the period's own "no charge" note gives way to why - one line stands in
+  // for the whole of the empty curve and list, which would otherwise repeat the same nothing twice.
+  $("chargeNone").hidden = here.length > 0;
+  $("chargeNone").textContent = all.length ? "No charge in this period." : noChargeLine(drives);
+  $("chargeList").innerHTML = chargeTable(here);
+  showChargeMap(places);
+  $("chargeWhere").innerHTML = !places.length ? `<p class="muted">No place on record for these charges.</p>`
+    : typeof L === "undefined" ? `<p class="muted">The map needs the network to draw.</p>`
+    : plainKey([{ colour: SERIES_COLOURS[0], label: "DC", shape: "dot" }, { colour: "#1f77b4", label: "AC", shape: "dot" }]);
+
+  // The curve reads every charge stored, not the period's: how fast the car charges is the car and the
+  // chargers, not the week, and one week rarely holds enough of either. With none at all, chargeNone
+  // already says why, so the curve box is left empty rather than repeating "no data" underneath it.
+  if (all.length) showCurve(curve, used.length);
+  else clearCurve();
+}
+
+/**
+ * The trip is planned on every drive and charge stored, for the same reason; only the temperature it
+ * starts from is the period's, the mean of its drives.
+ */
+function showTripTab(drives, list) {
+  const { perPoint, curve } = chargingOf(drives);
+  tripSource = { curve, perPoint: perPoint.kwh, drives };
+  if (!tempTyped) {
+    const temps = list.map(s => s.outsideTemp).filter(v => v != null);
+    trip = { ...trip, temp: temps.length ? Math.round(temps.reduce((x, y) => x + y, 0) / temps.length) : null };
+  }
+  showTrip();
+  // The form is drawn once (drawTrip leaves it as it is on later redraws), so a period change that moves
+  // the mean temperature has to be written into the field here - never inside showTrip(), which also runs
+  // on every keystroke and would overwrite a "-" the driver is still typing.
+  const field = $("tripPlanner").querySelector('[data-trip="temp"]');
+  if (field && !tempTyped) field.value = trip.temp ?? "";
+}
+
+// ---------- patterns ----------
+
+let patternCharts = [];
+const patternSizes = watchWidth(() => patternCharts);
+let placeMap = null, placePins = null;
+let patternsFrom = null, patternsKey = "";
+
+const patternBox = (title, options) => chartBox($("patternCharts"), title, options);
+
+/** The km over each bar, for a chart of so few weeks that it is read bar by bar. */
+function labelBars(u, weeks) {
+  const { ctx } = u, px = devicePixelRatio || 1;
+  ctx.save();
+  ctx.font = `${11 * px}px system-ui, sans-serif`;
+  ctx.fillStyle = "#6d6d78";
+  ctx.textAlign = "center";
+  weeks.forEach((w, i) => ctx.fillText(`${fmt(w.km, 0)} km`, u.valToPos(i, "x", true), u.valToPos(w.km, "y", true) - 4 * px));
+  ctx.restore();
+}
+const patternChart = (div, options, data) => {
+  const u = chartInto(div, patternSizes, options, data);
+  if (u) patternCharts.push(u);
+};
+
+/**
+ * Driving time by weekday and hour, as a grid of cells shaded against the
+ * busiest one. No library: 24 columns of CSS grid say it, and the note under
+ * them says the same thing in words for anyone the colours do not reach.
+ */
+function showHeatmap(grid) {
+  const busiest = Math.max(...grid.flat());
+  const hourLabel = h => h % 6 === 0 ? String(h) : "";
+  // The page's accent, faded by how busy the cell is; an empty hour keeps the line colour so the week
+  // still reads as a grid. A cell that saw any driving at all starts a fifth of the way up, or an hour
+  // beside a long motorway run would be indistinguishable from an hour the car never moved.
+  const shade = v => !v ? "" : ` style="background: rgba(252, 76, 2, ${(0.2 + 0.8 * v / busiest).toFixed(3)})"`;
+  $("heatmap").innerHTML = `<span></span>${[...Array(24).keys()].map(h => `<span>${hourLabel(h)}</span>`).join("")}` +
+    grid.map((row, d) => `<span class="day">${WEEKDAYS[d]}</span>` + row.map((v, h) =>
+      `<i${shade(v)} title="${WEEKDAYS[d]} ${String(h).padStart(2, "0")}:00 · ${v ? duration(v) : "nothing"}"></i>`).join("")).join("");
+  const total = grid.flat().reduce((a, b) => a + b, 0);
+  const peaks = grid.flatMap((row, d) => row.map((v, h) => ({ v, d, h }))).filter(c => c.v).sort((a, b) => b.v - a.v);
+  $("heatmap").setAttribute("aria-label", `Driving time by weekday and hour: ${hours(total)} in all` +
+    (peaks.length ? `, busiest ${WEEKDAYS[peaks[0].d]} at ${peaks[0].h}:00` : ""));
+  $("heatmapNote").textContent = !peaks.length ? "No moving time in these logs yet."
+    : `${hours(total)} of moving time by weekday and hour; the darker, the more driving.`;
+}
+
+/** The places the car keeps coming back to, as circles whose radius grows with the square root of the visits - a busy place reads bigger without swamping the map. (Not the area: the floor of 5 px means a place used twice draws more of it than its share of the visits.) */
+function showPlaces(found) {
+  const often = found.filter(p => p.visits >= limits.placeVisits);
+  const box = $("placeMap");
+  // One line: the counts are big numbers above the map, and each circle's figures are in its popup.
+  $("placeNote").textContent = !found.length ? "No drive here has a place to put on a map."
+    : !often.length ? `No place used at least ${plural(limits.placeVisits, "time")} yet.`
+    : `Places used at least ${plural(limits.placeVisits, "time")}; the bigger the circle, the more visits.`;
+  box.hidden = !often.length || typeof L === "undefined";
+  if (box.hidden) return;
+  if (!placeMap) {
+    placeMap = L.map(box, { preferCanvas: true });
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+    }).addTo(placeMap);
+    placePins = L.layerGroup().addTo(placeMap);
+  }
+  placePins.clearLayers();
+  const most = often[0].visits; // places() sorts busiest first.
+  for (const p of often) {
+    L.circleMarker([p.lat, p.lon], {
+      radius: 5 + 13 * Math.sqrt(p.visits / most), color: "#fff", weight: 2, fillColor: "#fc4c02", fillOpacity: .75,
+    }).bindPopup(`${plural(p.visits, "visit")}: ${fmt(p.setOffs, 0)} setting off, ${fmt(p.stops, 0)} stopping
+      <br>${fmt(p.km, 0)} km driven from here<br>${esc(at(p.first))} – ${esc(at(p.last))}`).addTo(placePins);
+  }
+  // Its size first, then the bounds: invalidateSize() keeps whatever zoom it has, as the charge map learned.
+  placeMap.invalidateSize();
+  placeMap.fitBounds(L.latLngBounds(often.map(p => [p.lat, p.lon])).pad(0.3), { maxZoom: 14 });
+}
+
+const AC_LABELS = ["A/C off", "A/C some of the time", "A/C on"];
+// Grey for a log that never wrote the column, then cool to warm as the A/C works harder.
+const AC_COLOURS = ["#1f77b4", "#8250df", "#fc4c02"], NO_AC_COLOUR = "#9a9aa2";
+
+/**
+ * Every drive stored: which weeks it drove, when in the week, where it stops,
+ * and what the weather costs. None of it follows the period bar - a pattern
+ * over one week is that week - and every figure is in a caption, so nothing
+ * here depends on the two CDNs answering.
+ *
+ * Nothing here reads the period, so stepping the bar must not redraw it: a redraw destroys both charts and
+ * re-fits the place map, which throws away the pan the reader had just done to look at a circle. The
+ * section is redrawn when what it reads changes - [summaries] is replaced wholesale on a delete or a
+ * rebuild and grows on an import, so its identity and its length together say so - and when either of the
+ * two limits it judges places by is typed anew.
+ */
+function showPatterns(drives) {
+  const key = `${summaries.length}/${limits.placeRadiusM}/${limits.placeVisits}`;
+  if (patternsFrom === summaries && patternsKey === key) return;
+  patternsFrom = summaries; patternsKey = key;
+  patternSizes?.disconnect();
+  for (const u of patternCharts) u.destroy();
+  $("patternCharts").replaceChildren();
+  patternCharts = [];
+
+  const weeks = distancePerWeek(drives);
+  const driven = weeks.reduce((x, w) => x + w.km, 0);
+  const grid = weekdayHours(drives), busiest = busiestTime(grid);
+  const found = places(drives, limits.placeRadiusM), often = found.filter(p => p.visits >= limits.placeVisits);
+  const { points, skipped } = tempScatter(drives);
+  const temps = points.map(p => p.temp);
+  // The big number reads like the Drives tab: a few hundred metres to the next street says nothing about
+  // consumption. The scatter below keeps every point - it draws each drive's own reading, not a ranking.
+  const counted = points.filter(p => p.km >= 1);
+  $("patternStats").innerHTML = statRow([
+    { label: "A usual week", value: weeks.length ? fmt(driven / weeks.length, 0) : null, unit: "km",
+      note: weeks.length ? `over ${plural(weeks.length, "week")} · busiest ${fmt(Math.max(...weeks.map(w => w.km)), 0)} km`
+        : "no drive has a date yet" },
+    { label: "Busiest time", value: busiest?.label ?? null,
+      note: busiest ? `${duration(busiest.seconds)} of driving there` : "no moving time yet" },
+    { label: "Regular places", value: found.length ? fmt(often.length, 0) : null,
+      note: !found.length ? "no drive has a place yet"
+        : `of ${fmt(found.length, 0)}` + (often.length ? ` · top one used ${plural(often[0].visits, "time")}` : "") },
+    { label: "Consumption range", value: counted.length
+        ? range(Math.min(...counted.map(p => p.per100)), Math.max(...counted.map(p => p.per100)), 1) : null,
+      note: counted.length
+        ? `kWh/100 km across ${range(Math.min(...counted.map(p => p.temp)), Math.max(...counted.map(p => p.temp)), 0)} °C, drives of 1 km or more`
+        : points.length ? "no drive of 1 km or more with a temperature and energy" : "no drive with a temperature and energy" },
+  ]);
+
+  // A year of weeks would be a year of dates in grey under a chart that already draws every one of them.
+  const weekly = patternBox("Distance per week", {
+    captions: weeks.length ? `Weeks run Monday to Sunday; ${fmt(driven, 0)} km in all.` : "No drive has a date to put in a week.",
+    key: weeks.length ? plainKey([{ colour: SERIES_COLOURS[0], label: "km driven", shape: "bar" }]) : "",
+  });
+  // Counted along, not along a clock: a week is a bucket, and a time axis would tick out the days
+  // inside it and print four dates under two bars. Empty weeks are in the list, so the spacing is honest.
+  // Month and day only: a year of weeks is 52 labels.
+  const weekLabel = ms => ymd(ms).slice(5);
+  if (weeks.length) patternChart(weekly, () => ({
+    // Two weeks or fewer are read bar by bar, so each carries its km; the headroom above keeps the top one's in view.
+    hooks: { draw: thin(weeks.map(w => w.km)) ? [u => labelBars(u, weeks)] : [] },
+    // The range is the bars' own, half an index past each end: with uPlot's default the first and the last
+    // bar are centred on the plot's edges and drawn at half width, which on two weeks of logs is every bar.
+    scales: { x: { time: false, range: [-0.5, weeks.length - 0.5] }, y: { range: (u, lo, hi) => [0, hi * 1.2 || 1] } },
+    axes: [{ grid: { show: false }, values: (u, vs) => vs.map(v => weeks[v] && Number.isInteger(v) ? weekLabel(weeks[v].start) : "") },
+      { size: 54, grid: { stroke: "#eee" }, values: (u, vs) => vs.map(v => `${v} km`) }],
+    series: [{ value: (u, v) => weeks[v] ? `week of ${periodOf(weeks[v].start)}` : "–" }, {
+      label: "km", stroke: SERIES_COLOURS[0], fill: "rgba(252, 76, 2, .5)", width: 1,
+      // A week is a bucket and not a moment: bars, not a line that reads as driving on the Monday.
+      paths: uPlot.paths.bars({ size: [0.7, 40] }), points: { show: false },
+      value: (u, v) => v == null ? "–" : `${fmt(v, 1)} km`,
+    }],
+  }), [weeks.map((w, i) => i), weeks.map(w => w.km)]);
+
+  // The key reads warmest first, as the mockup does: A/C on, off, some of the time, then no reading.
+  const scatter = patternBox("Consumption against the weather", {
+    captions: !points.length
+      ? `No drive carries both an outside temperature and energy of its own${skipped ? ` - ${plural(skipped, "drive")} left out` : ""}.`
+      : plural(points.length, "drive") + (skipped ? `; ${plural(skipped, "drive")} without a temperature or energy of their own` : "") + ".",
+    key: !points.length ? "" : plainKey([2, 0, 1].map(k => ({ colour: AC_COLOURS[k], label: AC_LABELS[k], shape: "dot" }))
+      .concat({ colour: NO_AC_COLOUR, label: "no A/C reading", shape: "dot" }), "x: °C · y: kWh/100 km"),
+  });
+  if (points.length) patternChart(scatter, () => ({
+    // Nought is the floor only while the drives are above it: a drive that regenerated more than it used
+    // reads as a negative kWh/100 km, and it is exactly the drive worth seeing on a chart about the weather.
+    scales: { x: { time: false }, y: { range: (u, lo, hi) => [Math.min(0, lo * 1.1), hi * 1.1 || 1] } },
+    axes: [{ grid: { stroke: "#eee" }, values: (u, vs) => vs.map(v => `${v} °C`) },
+      { size: 54, grid: { stroke: "#eee" }, values: (u, vs) => vs.map(v => `${v}`) }],
+    // One series per A/C band and one for the logs without the column: uPlot colours a series, not a point.
+    series: [{ label: "°C", value: (u, v) => v == null ? "–" : `${fmt(v, 1)} °C` }, ...[...AC_LABELS, "no A/C reading"].map((label, k) => ({
+      label, stroke: AC_COLOURS[k] ?? NO_AC_COLOUR, fill: AC_COLOURS[k] ?? NO_AC_COLOUR,
+      paths: () => null, points: { show: true, size: 8 },
+      value: (u, v) => v == null ? "–" : `${fmt(v, 1)} kWh/100 km`,
+    }))],
+  }), [temps, ...[...AC_BANDS.keys(), null].map(band => points.map(p => p.ac === band ? p.per100 : null))]);
+
+  showHeatmap(grid);
+  showPlaces(found);
+}
+
+// Shares are kept as fractions and edited as percentages: nobody types 0.12.
+// Each limit names the Settings panel it is shown in: "driving", "battery" or "places".
+const LIMIT_FIELDS = [
+  { key: "hardAccel", label: "Hard acceleration", unit: "m/s²", step: 0.1, group: "driving" },
+  { key: "hardBrake", label: "Hard braking", unit: "m/s²", step: 0.1, group: "driving" },
+  { key: "hardAccelPer100", label: "Hard pulls still fine", unit: "/100 km", step: 0.5, group: "driving" },
+  { key: "hardBrakePer100", label: "Hard stops still fine", unit: "/100 km", step: 0.5, group: "driving" },
+  { key: "brakeLossGood", label: "Brake loss still good", unit: "%", step: 1, scale: 100, group: "driving" },
+  { key: "brakeLossBad", label: "Brake loss now bad", unit: "%", step: 1, scale: 100, group: "driving" },
+  { key: "regenShare", label: "Regen back, good from", unit: "%", step: 1, scale: 100, group: "driving" },
+  { key: "motorwaySpread", label: "Motorway speed spread", unit: "km/h", step: 0.5, group: "driving" },
+  { key: "shortTripKm", label: "A trip is short under", unit: "km", step: 0.5, group: "driving" },
+  { key: "coldPackC", label: "The pack is cold under", unit: "°C", step: 1, group: "battery" },
+  { key: "weakPackSoc", label: "The pack is weak under", unit: "%", step: 1, group: "battery" },
+  { key: "hardPullKw", label: "A pull is hard above", unit: "kW", step: 5, group: "battery" },
+  { key: "lowSocPercent", label: "Nearly empty under", unit: "%", step: 1, group: "battery" },
+  { key: "chargeRise", label: "A charge raised at least", unit: "points", step: 1, group: "battery" },
+  { key: "dcKw", label: "A charge is DC above", unit: "kW", step: 1, group: "battery" },
+  { key: "movedM", label: "The car was moved over", unit: "m", step: 50, group: "places" },
+  { key: "chargeGapHours", label: "A charge to time is under", unit: "h", step: 0.5, group: "battery" },
+  { key: "placeRadiusM", label: "A parking joins a place within", unit: "m", step: 10, group: "places" },
+  { key: "placeVisits", label: "A place is used at least", unit: "times", step: 1, group: "places" },
+];
+const CALIBRATION_FIELDS = [
+  { key: "massKg", label: "Car and driver", unit: "kg", step: 10 },
+  { key: "cdaM2", label: "Drag area CdA", unit: "m²", step: 0.01 },
+  { key: "rolling", label: "Rolling resistance", unit: "", step: 0.001 },
+  { key: "regenEfficiency", label: "Regen efficiency", unit: "", step: 0.01 },
+  { key: "airDensity", label: "Air density", unit: "kg/m³", step: 0.1 },
+];
+
+/** Rows of label · input · unit, lined up in three columns as the Trip form is. */
+const fieldGrid = (fields, values, least) => `<div class="fields">${fields.map(f =>
+  `<label for="set-${f.key}">${esc(f.label)}</label><input id="set-${f.key}" type="number" step="${f.step}" min="${least}"
+    data-field="${f.key}" value="${values[f.key] * (f.scale ?? 1)}"><span class="unit">${esc(f.unit)}</span>`).join("")}</div>`;
+const limitGrid = group => fieldGrid(LIMIT_FIELDS.filter(f => f.group === group), limits, LEAST_LIMIT);
+
+function showSettings() {
+  $("limitFields").innerHTML = panel("Driving", limitGrid("driving")) +
+    panel("Battery and charging", `${limitGrid("battery")}<h2>Places</h2>${limitGrid("places")}`);
+  $("calFields").innerHTML = panel("Physics", fieldGrid(CALIBRATION_FIELDS, calibration, LEAST_CALIBRATION) +
+    `<p class="muted">Used for brake loss and for trips when there is too little of your own driving.</p>`);
+}
+
+/** A value the page can work with, or nothing - and then the field is drawn again with what is still stored. */
+const fieldValue = (fields, input, least) => {
+  const field = fields.find(f => f.key === input.dataset.field);
+  const typed = Number(input.value) / (field?.scale ?? 1);
+  return field && Number.isFinite(typed) && typed >= least ? { ...field, value: typed } : null;
+};
+
+$("limitFields").addEventListener("change", async e => {
+  const got = fieldValue(LIMIT_FIELDS, e.target, LEAST_LIMIT);
+  if (!got) return showSettings();
+  limits = { ...limits, [got.key]: got.value };
+  await change(db, [{ store: "settings", key: "limits", value: limits }]);
+  render();
+});
+
+// The calibration is part of the measuring, so the stored drives are worked out again from their files.
+$("calFields").addEventListener("change", async e => {
+  const got = fieldValue(CALIBRATION_FIELDS, e.target, LEAST_CALIBRATION);
+  if (!got) return showSettings();
+  calibration = { ...calibration, [got.key]: got.value };
+  await change(db, [{ store: "settings", key: "calibration", value: calibration }]);
+  // render() must run whether the rebuild succeeds or not, or the busy text never clears.
+  serially(async () => { try { await rebuildStale(); } finally { render(); } }).catch(err => {
+    $("importCard").hidden = false;
+    $("importStatus").textContent = `Updating the stored drives failed: ${err.message}`;
+  });
+});
+
+// The form is drawn once: redrawing it on every render would take the focus out of a field being typed in.
+showSettings();
+
+/** A drive's moving time: minutes under an hour, as a list of short drives reads best. */
+const drivingTime = s => s < 3600 ? `${fmt(Math.floor(s / 60), 0)} min` : hours(s);
+
+/** The period's drives: four big numbers, then every drive newest first, each with its tick, its link and its delete. */
+function showDrives(list) {
+  const words = thisPeriod(kind);
+  const longest = list.reduce((a, s) => !a || s.km > a.km ? s : a, null);
+  const { most, least } = efficiencyEnds(list);
+  // The habits' own rule for a cold or short trip, from the drive's figures and the limits of the moment.
+  const cold = s => s.km < limits.shortTripKm || (s.packTempStart != null && s.packTempStart < limits.coldPackC);
+  const none = list.length ? "no drive of 1 km with energy" : "no drives in this period";
+  $("driveStats").innerHTML = statRow([
+    { label: "Drives", value: fmt(list.length, 0), note: kind === "all" ? "stored in this browser" : words },
+    { label: "Longest", value: longest ? fmt(longest.km, 1) : null, unit: "km",
+      note: longest ? dayTime(longest.start) : "no drives in this period" },
+    { label: "Most efficient", value: most ? fmt(most.per100, 1) : null, note: most ? `kWh/100 km · ${day(most.start)}` : none },
+    { label: "Least efficient", value: least ? fmt(least.per100, 1) : null,
+      note: least ? `kWh/100 km · ${day(least.start)}${cold(least) ? " · a short cold start" : ""}` : none },
+  ]);
+  $("drivesTitle").textContent = kind === "all" ? "All drives" : `All drives ${words}`;
+  const rows = [...list].reverse().map(s => `<tr><td><input type="checkbox" data-file="${esc(s.fileId)}" data-start="${esc(s.start)}" data-end="${esc(s.end)}" aria-label="Tick this drive"></td>
+      <td>${dayTime(s.start)}</td>
+      <td>${fmt(s.km, 1)}</td><td>${drivingTime(s.moving)}</td><td>${fmt(s.energy, 2)}</td><td>${fmt(s.per100, 1)}</td>
+      <td>${s.socStart == null ? "–" : `${fmt(s.socStart, 0)} → ${fmt(s.socEnd, 0)} %`}</td>
+      <td title="${esc(s.file)}"><a href="${esc(playerHref([s.fileId], s.start, s.end))}">Open</a></td>
+      <td><button data-forget="${esc(s.id)}">Delete</button></td></tr>`);
+  $("driveRows").innerHTML = `<tr><th></th><th>When</th><th>km</th><th>Driving</th><th>kWh</th><th>kWh/100 km</th><th>Charge</th><th></th><th></th></tr>` + rows.join("");
+  tickedChanged();
+}
+
+$("driveRows").addEventListener("click", async e => {
+  const id = e.target.dataset.forget;
+  if (!id || !confirm("Delete this drive from this browser?")) return;
+  await serially(() => forget(id));
+  if (summaries.length) render(); else showLatest();
+});
+function tickedChanged() {
+  const ticked = $("driveRows").querySelectorAll("input:checked").length;
+  $("openTicked").disabled = !ticked;
+  $("openTicked").textContent = ticked ? `Open ${ticked} ticked in player` : "Open ticked in player";
+}
+$("driveRows").addEventListener("change", tickedChanged);
+$("openTicked").addEventListener("click", () => {
+  const ticked = [...$("driveRows").querySelectorAll("input:checked")];
+  const files = [...new Set(ticked.map(i => i.dataset.file))];
+  location.href = playerHref(files,
+    Math.min(...ticked.map(i => Number(i.dataset.start))), Math.max(...ticked.map(i => Number(i.dataset.end))));
+});
+for (const b of document.querySelectorAll("[data-kind]")) b.addEventListener("click", () => {
+  const anchor = kind === "all" ? latestStart() : start;
+  kind = b.dataset.kind;
+  start = periodStart(kind, anchor);
+  render();
+});
+$("prev").addEventListener("click", () => { start = previousStart(kind, start); render(); });
+$("next").addEventListener("click", () => { start = nextStart(kind, start); render(); });
+
+$("fileInput").addEventListener("change", e => { const files = [...e.target.files]; e.target.value = ""; serially(() => importFiles(files)); });
+
+/** Dropped files, and the .gpx files inside dropped folders. */
+async function droppedFiles(dt) {
+  // Entries must be taken before the first await: the drop's data is gone after the event.
+  const entries = [...dt.items].map(item => item.webkitGetAsEntry?.()).filter(Boolean);
+  if (!entries.length) return [...dt.files];
+  const files = [];
+  const readAll = async reader => {
+    const out = [];
+    for (let batch; (batch = await new Promise((ok, fail) => reader.readEntries(ok, fail))).length;) out.push(...batch);
+    return out;
+  };
+  const walk = async entry => {
+    if (entry.isFile) files.push(await new Promise((ok, fail) => entry.file(ok, fail)));
+    else for (const child of await readAll(entry.createReader())) await walk(child);
+  };
+  for (const entry of entries) await walk(entry);
+  return files.filter(f => /\.gpx$/i.test(f.name));
+}
+// Only files: dragging text or a link around the page is not an import.
+const carriesFiles = e => e.dataTransfer?.types.includes("Files");
+["dragenter", "dragover"].forEach(ev => document.addEventListener(ev, e => {
+  if (!carriesFiles(e)) return;
+  e.preventDefault();
+  $("drop").style.display = "flex";
+}));
+["dragleave", "drop"].forEach(ev => document.addEventListener(ev, e => {
+  if (!carriesFiles(e)) return;
+  e.preventDefault();
+  if (ev === "drop" || e.target === $("drop")) $("drop").style.display = "none";
+}));
+document.addEventListener("drop", e => {
+  if (!carriesFiles(e)) return;
+  const files = droppedFiles(e.dataTransfer);
+  serially(async () => importFiles(await files));
+});
+
+// ---------- tabs ----------
+
+const TABS = ["coach", "battery", "charging", "trip", "patterns", "drives", "settings"];
+// Drawn only while on screen: a chart or a map needs a box with a size, and the trip planner plans every speed from 60 to 150.
+const CHART_TABS = ["battery", "charging", "trip", "patterns"];
+let currentTab = "coach";
+const undrawn = new Set(CHART_TABS);
+
+/** Draws a chart tab whose figures changed since it was last drawn, if the page is showing; true when it did. */
+function drawTab(name) {
+  if (!undrawn.has(name) || $("app").hidden) return false;
+  undrawn.delete(name);
+  const drives = visible(summaries);
+  if (name === "battery") showBattery(drives);
+  if (name === "charging") showCharging(drives);
+  if (name === "trip") showTripTab(drives, periodDrives(drives));
+  if (name === "patterns") showPatterns(drives);
+  return true;
+}
+
+/** Charts and maps drawn earlier keep the size their box had then, so each is told its size again when its tab is back. */
+function fitTab(name) {
+  const fit = charts => {
+    for (const u of charts) {
+      const width = u.root.parentNode.clientWidth;
+      if (width) u.setSize({ width, height: u.height });
+    }
+  };
+  if (name === "battery") fit(batteryCharts);
+  if (name === "charging") { fit(curveChart ? [curveChart] : []); chargeMap?.invalidateSize(); }
+  if (name === "patterns") { fit(patternCharts); placeMap?.invalidateSize(); }
+}
+
+/** The tab the address names; Coach for an empty or unknown one. */
+function showTab() {
+  const asked = location.hash.slice(1);
+  currentTab = TABS.includes(asked) ? asked : "coach";
+  for (const name of TABS) {
+    const on = name === currentTab;
+    $(`tab-${name}`).setAttribute("aria-selected", String(on));
+    $(`tab-${name}`).tabIndex = on ? 0 : -1;
+    $(`panel-${name}`).hidden = !on;
+  }
+  if (!drawTab(currentTab)) fitTab(currentTab);
+}
+
+// The tab lives in the address: Back returns to the tab before, and a link can open any of them.
+window.addEventListener("hashchange", showTab);
+$("tabs").addEventListener("click", e => {
+  const tab = e.target.closest('[role="tab"]');
+  if (tab) location.hash = tab.id.slice("tab-".length);
+});
+// The ARIA tabs pattern, following focus: arrows step along the row and wrap, Home and End jump to its ends.
+// Moving with the keyboard replaces the hash instead of pushing it, so Back steps between clicked tabs only.
+$("tabs").addEventListener("keydown", e => {
+  const at = TABS.indexOf(e.target.id.slice("tab-".length));
+  const to = { ArrowRight: at + 1, ArrowLeft: at - 1, Home: 0, End: TABS.length - 1 }[e.key];
+  if (at < 0 || to === undefined) return;
+  e.preventDefault();
+  const name = TABS[(to + TABS.length) % TABS.length];
+  $(`tab-${name}`).focus();
+  history.replaceState(null, "", `#${name}`);
+  showTab();
+});
+showTab();
+
+// Draw what is stored first; summaries from an older page are then brought up to date, with progress.
+showLatest();
+// A share opened this page: take the files the service worker left before anything else.
+// The worker says so when it could not store what was shared; the file is gone and nothing will import it.
+if (new URLSearchParams(location.search).get("inbox") === "failed") {
+  $("importCard").hidden = false;
+  $("importStatus").textContent = "The shared file could not be stored in this browser.";
+} else if (new URLSearchParams(location.search).has("inbox")) serially(importInbox).catch(e => {
+  $("importCard").hidden = false;
+  $("importStatus").textContent = `The shared files could not be read: ${e.message}`;
+});
+// showLatest() must run whether the rebuild succeeds or not, or the busy text never clears.
+serially(async () => { try { await rebuildStale(); } finally { showLatest(); } }).catch(e => {
+  $("importCard").hidden = false;
+  $("importStatus").textContent = `Updating the stored drives failed: ${e.message}`;
+});
+
+// Offline once visited, and the target Android shares GPX files into. Registration failing costs
+// only that: the page works from the network as it always has.
+try { navigator.serviceWorker?.register("sw.js").catch(() => {}); } catch {}
+</script>
+</body>
+</html>

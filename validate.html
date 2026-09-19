@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GPX log validator</title>
+<link rel="icon" href="icons/icon.svg">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#fc4c02">
+<style>
+  :root { --bg: #f5f5f3; --card: #fff; --text: #242428; --muted: #6d6d78; --line: #e3e3e0; --accent: #fc4c02; --good: #1f9d55; --bad: #c62828; }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding-inline: 16px; background: var(--bg); color: var(--text);
+    font: 14px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 860px; margin-inline: auto; padding-bottom: 32px; }
+  header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; padding-block: 12px; }
+  header h1 { font-size: 18px; margin: 0; }
+  header .name { color: var(--muted); overflow-wrap: anywhere; }
+  header nav { margin-left: auto; }
+  a { color: var(--accent); }
+  .file { font: inherit; border: 1px solid var(--accent); background: var(--accent); color: #fff; border-radius: 6px; padding: 5px 10px; cursor: pointer; }
+  .file input { display: none; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px; margin-bottom: 12px; }
+  h2 { font-size: 12px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); margin: 0 0 8px; }
+  #verdict { font-size: 18px; font-weight: 600; margin: 0 0 4px; }
+  .ok { color: var(--good); } .bad { color: var(--bad); }
+  .muted { color: var(--muted); }
+  ul { margin: 4px 0 8px; padding-left: 20px; }
+  li { margin: 4px 0; overflow-wrap: anywhere; }
+  code { font: 12px/1.4 ui-monospace, "SF Mono", Menlo, Consolas, monospace; background: #f0f0ed; padding: 1px 4px; border-radius: 4px; }
+  .scroll { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { text-align: left; padding: 4px 8px 4px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-weight: 500; }
+  pre { overflow-x: auto; background: #f0f0ed; padding: 8px 10px; border-radius: 6px; }
+  #drop { position: fixed; inset: 0; background: rgba(252, 76, 2, .12); border: 3px dashed var(--accent);
+    display: none; align-items: center; justify-content: center; font-size: 22px; z-index: 10; }
+</style>
+</head>
+<body>
+<main>
+<header>
+  <h1>GPX log validator</h1>
+  <label class="file">Open GPX<input id="fileInput" type="file" accept=".gpx,application/gpx+xml"></label>
+  <span class="name" id="name"></span>
+  <nav><a href="./">GPX log player</a> · <a href="statistics.html">Statistics</a></nav>
+</header>
+
+<div class="card" id="result">
+  <p id="verdict">Open or drop a GPX file to check it.</p>
+  <div id="details" class="muted">It is checked against <a href="schema/gpx-log-player.xsd">the schema</a> and the player's own requirements, in this browser - nothing is uploaded.</div>
+</div>
+
+<div class="card">
+  <h2>What a file needs</h2>
+  <ul>
+    <li><b>GPX 1.1</b>, valid against the schema: the <a href="https://www.topografix.com/GPX/1/1/gpx.xsd">GPX 1.1 schema</a>,
+      Garmin's <a href="https://www8.garmin.com/xmlschemas/TrackPointExtensionv2.xsd">TrackPointExtension v2</a>
+      and the <a href="schema/ev.xsd"><code>ev</code> extension</a> for what the vehicle logged.</li>
+    <li><b>At least two track points</b>, each with <code>lat</code>, <code>lon</code> and a <code>time</code>, in time order.
+      GPX itself lets <code>time</code> out; the player cannot play a track without it.</li>
+    <li><b>Every value in the <code>ev</code> namespace is a number</b>, and <code>ev:cells_v</code> has the same count on every point.
+      The schema checks the names below; any other name it lets through, so this page checks those.</li>
+  </ul>
+  <p>Everything else is optional and adds to what the player shows: <code>ele</code> for altitude and climb,
+    <code>gpxtpx:speed</code> (m/s) for speed, <code>gpxtpx:course</code> for heading, and these values on each point's <code>&lt;extensions&gt;</code>:</p>
+  <div class="scroll"><table>
+    <tr><th>Element</th><th>Unit</th><th>Shows as</th></tr>
+    <tr><td><code>ev:speed_kmh</code></td><td>km/h</td><td>Speed chart, average speed, colour by speed. Falls back to <code>gpxtpx:speed</code>.</td></tr>
+    <tr><td><code>ev:power_kw</code></td><td>kW, + out of the pack</td><td>Power chart, draw and regen, colour by power. Falls back to <code>pack_voltage_v</code> × <code>current_a</code>.</td></tr>
+    <tr><td><code>ev:pack_voltage_v</code>, <code>ev:current_a</code></td><td>V, A</td><td>Pack voltage and current chart.</td></tr>
+    <tr><td><code>ev:energy_kwh</code></td><td>kWh, running total</td><td>Energy used chart, kWh and kWh/100 km. Without it those figures come from integrating power.</td></tr>
+    <tr><td><code>ev:energy_regen_kwh</code></td><td>kWh, running total, never falls</td><td>Out of pack · regen back in the measurements, Regen back on the Energy used chart. Without it both come from integrating power; with it, an app restart partway through a log is carried over.</td></tr>
+    <tr><td><code>ev:kwh_per_100km</code></td><td>kWh/100 km</td><td>Consumption (dash).</td></tr>
+    <tr><td><code>ev:grade_percent</code></td><td>%</td><td>Grade chart, colour by grade.</td></tr>
+    <tr><td><code>ev:soc_percent</code></td><td>%</td><td>State of charge chart, BMS charge jumps.</td></tr>
+    <tr><td><code>ev:soc_weakest_cell_percent</code>, <code>cell_soc_min_percent</code>, <code>cell_soc_max_percent</code></td><td>%</td><td>Weakest cell, cell min and max on the charge chart.</td></tr>
+    <tr><td><code>ev:cell_voltage_min_v</code>, <code>cell_voltage_max_v</code></td><td>V</td><td>Cells chart, the car's own spread.</td></tr>
+    <tr><td><code>ev:cells_v</code></td><td>V, space separated</td><td>Cells at the cursor, cell spread, the cell heat map, the weakest cell.</td></tr>
+    <tr><td><code>ev:battery_temp_c</code>, <code>outside_temp_c</code>, <code>module_1_temp_c</code>…<code>module_6_temp_c</code></td><td>°C</td><td>Temperatures chart.</td></tr>
+    <tr><td><code>ev:soh_percent</code>, <code>odometer_km</code>, <code>range_km</code>, <code>aux_12v_v</code>, <code>pressure_altitude_m</code></td><td>%, km, km, V, m</td><td>Every value, Extra chart.</td></tr>
+    <tr><td>any other <code>ev:</code> name</td><td>a number</td><td>Every value, Extra chart.</td></tr>
+    <tr><td><code>&lt;name&gt;</code>, <code>&lt;desc&gt;</code>, <code>&lt;type&gt;</code> on a <code>trkpt</code></td><td>text; <code>type</code> is <code>soc</code>, <code>cell</code>, <code>link</code> or <code>resumed</code></td><td>An event from the car, in a file with an <code>ev:field</code> key. <code>resumed</code> also marks where the energy counters started again.</td></tr>
+    <tr><td><code>ev:vehicle</code>, <code>ev:field</code> in <code>&lt;metadata&gt;&lt;extensions&gt;</code></td><td></td><td>The car; the label and unit a name is listed under.</td></tr>
+  </table></div>
+  <p>The same check from a terminal (without the checks the schema cannot make):</p>
+  <pre>xmllint --noout --schema schema/gpx-log-player.xsd drive.gpx</pre>
+</div>
+</main>
+<div id="drop">Drop the GPX file</div>
+
+<script type="module">
+import { validateXML, memoryPages } from "./vendor/xmllint-wasm/index-browser.mjs";
+
+const NS_GPX = "http://www.topografix.com/GPX/1/1";
+const NS_EV = "urn:dev.moped:ev-gpx:1";
+const SCHEMAS = ["gpx-log-player.xsd", "gpx.xsd", "TrackPointExtensionv2.xsd", "ev.xsd"];
+const $ = id => document.getElementById(id);
+const el = (tag, text, cls) => { const e = document.createElement(tag); if (text != null) e.textContent = text; if (cls) e.className = cls; return e; };
+const schemas = Promise.all(SCHEMAS.map(f => fetch(`schema/${f}`).then(r => r.ok ? r.text() : Promise.reject(new Error(`${r.status} loading schema/${f}`)))
+  .then(contents => ({ fileName: f, contents }))));
+
+/** What the schema cannot say: GPX leaves time optional, and lets unknown ev names through unchecked. */
+function playerChecks(doc) {
+  const problems = [], ids = new Set(), pts = doc.getElementsByTagNameNS("*", "trkpt");
+  if (pts.length < 2) problems.push(`At least two track points are needed; the file has ${pts.length}.`);
+  const noTime = [], backwards = [], cellCounts = [], notNumber = new Map();
+  let prev = -Infinity, first = NaN, last = NaN;
+  for (let i = 0; i < pts.length; i++) {
+    const kids = [...pts[i].children], time = kids.find(c => c.localName === "time");
+    if (!time) noTime.push(i + 1);
+    else {
+      const t = Date.parse(time.textContent);
+      if (t < prev) backwards.push(i + 1);
+      if (!Number.isNaN(t)) { prev = t; if (Number.isNaN(first)) first = t; last = t; }
+    }
+    for (const e of kids.find(c => c.localName === "extensions")?.children ?? []) {
+      if (e.namespaceURI !== NS_EV) continue;
+      ids.add(e.localName);
+      const text = e.textContent.trim();
+      if (e.localName === "cells_v") {
+        const n = text ? text.split(/\s+/).length : 0;
+        cellCounts.push([i + 1, n]);
+      } else if (!text || !Number.isFinite(Number(text))) {
+        if (!notNumber.has(e.localName)) notNumber.set(e.localName, []);
+        notNumber.get(e.localName).push(i + 1);
+      }
+    }
+  }
+  const at = list => `${list.length} point${list.length > 1 ? "s" : ""}, first point ${list[0]}`;
+  if (noTime.length) problems.push(`Track points without a time: ${at(noTime)}.`);
+  if (backwards.length) problems.push(`Time goes backwards: ${at(backwards)}.`);
+  // Against the count most points have, so one bad point is the one named.
+  const tally = new Map();
+  for (const [, n] of cellCounts) tally.set(n, (tally.get(n) || 0) + 1);
+  const usual = [...tally].sort((a, b) => b[1] - a[1])[0]?.[0];
+  const cellsOff = cellCounts.filter(([, n]) => n !== usual).map(([point]) => point);
+  if (cellsOff.length) problems.push(`ev:cells_v has a different count from the usual ${usual}: ${at(cellsOff)}.`);
+  for (const [id, list] of notNumber) problems.push(`ev:${id} is not a number: ${at(list)}.`);
+  return { problems, ids, n: pts.length, seconds: (last - first) / 1000 };
+}
+
+/** One line per distinct message, with how often and where it first came. */
+function groupErrors(errors) {
+  const groups = new Map();
+  for (const e of errors) {
+    const msg = e.message.replace(/^.*?(Schemas validity error|parser error)\s*:\s*/, "")
+      .replaceAll(`{${NS_GPX}}`, "").replaceAll(`{${NS_EV}}`, "ev:")
+      .replaceAll("{http://www.garmin.com/xmlschemas/TrackPointExtension/v2}", "gpxtpx:");
+    if (!msg || /fails to validate$/.test(msg)) continue;
+    const g = groups.get(msg) || groups.set(msg, { count: 0, line: e.loc?.lineNumber }).get(msg);
+    g.count++;
+  }
+  // A bad list value can contain all 96 cells, so long messages are cut.
+  return [...groups].map(([msg, g]) => (g.count > 1 ? `${g.count.toLocaleString()} times, first on line ${g.line}: ` : g.line ? `Line ${g.line}: ` : "") +
+    (msg.length > 240 ? `${msg.slice(0, 240)}…` : msg));
+}
+
+function show(ok, headline, sections) {
+  $("verdict").textContent = headline;
+  $("verdict").className = ok ? "ok" : "bad";
+  const box = $("details");
+  box.className = "";
+  box.replaceChildren();
+  for (const [title, items, cls] of sections) {
+    if (!items.length) continue;
+    box.append(el("h2", title));
+    const ul = el("ul", null, cls);
+    for (const text of items) ul.append(el("li", text));
+    box.append(ul);
+  }
+}
+
+async function check(text, fileName) {
+  $("name").textContent = fileName;
+  show(true, "Checking…", []);
+  $("verdict").className = "muted";
+  const doc = new DOMParser().parseFromString(text, "application/xml");
+  const parseError = doc.getElementsByTagName("parsererror")[0];
+  // Chrome puts the message in a <div> between two headings, Firefox in the first text node.
+  if (parseError) return show(false, "Not well-formed XML", [["XML", [(parseError.querySelector("div") ?? parseError.firstChild).textContent.trim()]]]);
+
+  const player = playerChecks(doc);
+  if (doc.documentElement.namespaceURI !== NS_GPX || doc.documentElement.localName !== "gpx") {
+    player.problems.unshift(`The root element is not GPX 1.1: <${doc.documentElement.nodeName}> in "${doc.documentElement.namespaceURI ?? "no namespace"}", not <gpx> in "${NS_GPX}".`);
+  }
+  let schemaProblems;
+  try {
+    const [main, ...preload] = await schemas;
+    const result = await validateXML({ xml: [{ fileName: "log.gpx", contents: text }], schema: [main], preload, maxMemoryPages: memoryPages.GiB });
+    schemaProblems = groupErrors(result.errors);
+    if (!result.valid && !schemaProblems.length) schemaProblems = [result.rawOutput.trim() || "The schema check failed without a message."];
+  } catch (e) {
+    schemaProblems = [`The schema check could not run: ${e.message}`];
+  }
+
+  const count = schemaProblems.length + player.problems.length;
+  const ids = [...player.ids].sort();
+  const found = `${player.n.toLocaleString()} track point${player.n === 1 ? "" : "s"}` +
+    (Number.isFinite(player.seconds) ? `, ${Math.round(player.seconds / 60)} min` : "") +
+    (ids.length ? `, ${ids.length} ev values: ${ids.join(", ")}` : ", no ev values");
+  show(!count, count ? `${count} problem${count > 1 ? "s" : ""} - the player may not show this file right` : "Valid - the player can read this file", [
+    ["GPX 1.1 schema", schemaProblems, "bad"],
+    ["Player requirements", player.problems, "bad"],
+    ["In the file", [found]],
+  ]);
+}
+
+async function open(file) { if (file) check(await file.text(), file.name); }
+$("fileInput").addEventListener("change", e => open(e.target.files[0]));
+["dragenter", "dragover"].forEach(ev => document.addEventListener(ev, e => { e.preventDefault(); $("drop").style.display = "flex"; }));
+["dragleave", "drop"].forEach(ev => document.addEventListener(ev, e => { e.preventDefault(); if (ev === "drop" || e.target === $("drop")) $("drop").style.display = "none"; }));
+document.addEventListener("drop", e => open(e.dataTransfer.files[0]));
+
+// Offline once visited. Nothing on this page needs the worker, so a failure to register is ignored.
+try { navigator.serviceWorker?.register("sw.js").catch(() => {}); } catch {}
+</script>
+</body>
+</html>
