@@ -280,6 +280,8 @@
         <div id="chargeWhere"></div></section>
     </div>
     <p class="muted" id="chargeNone" hidden>No charge in this period.</p>
+    <section class="panel" id="sessionPanel" hidden><h2>Logged sessions</h2><div id="sessionList"></div></section>
+    <div id="sessionCurve"></div>
     <div id="chargeCurve"></div>
   </section>
   <section role="tabpanel" id="panel-trip" aria-labelledby="tab-trip" hidden>
@@ -347,10 +349,11 @@ const hm = ms => { const d = new Date(ms); return `${pad(d.getHours())}:${pad(d.
 const ymdhm = ms => `${ymd(ms)} ${hm(ms)}`;
 
 // Without the stored drives nothing on this page works: say so instead of looking empty.
-let db, summaries, limits = LIMITS, calibration = CALIBRATION;
+let db, summaries, logged, limits = LIMITS, calibration = CALIBRATION;
 try {
   db = await openDb();
   summaries = await getAll(db, "summaries");
+  logged = await getAll(db, "charges");
   limits = withLimits(await get(db, "settings", "limits"));
   calibration = withCalibration(await get(db, "settings", "calibration"));
 } catch (e) {
@@ -399,7 +402,9 @@ async function importFiles(files) {
         const existing = await get(db, "charges", fileId);
         if (existing) { skipped++; continue; }
         const session = parseChargingCsv(text);
-        await change(db, [{ store: "charges", key: fileId, value: { ...session, fileId, file: f.name } }]);
+        const value = { ...session, fileId, file: f.name };
+        await change(db, [{ store: "charges", key: fileId, value }]);
+        logged.push(value);
         addedCharges++;
         continue;
       }
@@ -1389,7 +1394,8 @@ function showCharging(drives) {
   $("chargeRow").hidden = !here.length;
   // With nothing at all found, the period's own "no charge" note gives way to why - one line stands in
   // for the whole of the empty curve and list, which would otherwise repeat the same nothing twice.
-  $("chargeNone").hidden = here.length > 0;
+  const sessions = loggedIn(start);
+  $("chargeNone").hidden = here.length > 0 || sessions.length > 0;
   $("chargeNone").textContent = all.length ? "No charge in this period." : noChargeLine(drives);
   $("chargeList").innerHTML = chargeTable(here);
   showChargeMap(places);
@@ -1402,6 +1408,50 @@ function showCharging(drives) {
   // already says why, so the curve box is left empty rather than repeating "no data" underneath it.
   if (all.length) showCurve(curve, used.length);
   else clearCurve();
+  showSessions(sessions);
+}
+
+// ---------- logged charging sessions ----------
+
+/** The CSV sessions that started in the period, oldest first. */
+const loggedIn = from => logged.map(c => ({ ...c, at: Date.parse(c.startedAt) }))
+  .filter(c => kind === "all" || (c.at >= from && c.at < nextStart(kind, from)))
+  .sort((a, b) => a.at - b.at);
+
+let sessionChart = null;
+const sessionSizes = watchWidth(() => sessionChart ? [sessionChart] : []);
+
+/**
+ * The sessions the car logged itself: measured, so they stand beside the charges read out of the gaps
+ * between drives and are never mixed into them. The newest one gets its curve drawn.
+ */
+function showSessions(sessions) {
+  sessionSizes?.disconnect();
+  sessionChart?.destroy();
+  sessionChart = null;
+  $("sessionCurve").replaceChildren();
+  $("sessionPanel").hidden = !sessions.length;
+  if (!sessions.length) return;
+  $("sessionList").innerHTML = `<div class="scroll"><table><tr><th>When</th><th>Charge</th><th>kWh</th><th>Peak kW</th><th>Took</th></tr>` +
+    sessions.map(c => `<tr><td>${esc(dayTime(c.at))}</td><td>${fmt(c.socFrom, 0)} → ${fmt(c.socTo, 0)} %</td>
+      <td>${fmt(c.kwhAdded, 1)}</td><td>${fmt(c.peakKw, 1)}</td><td>${hours(c.seconds)}</td></tr>`).join("") +
+    `</table></div>`;
+  const last = sessions[sessions.length - 1];
+  if (last.points.length < 2) return;
+  const div = chartBox($("sessionCurve"), `Logged session, ${dayTime(last.at)}`, {
+    captions: `${fmt(last.socFrom, 0)} → ${fmt(last.socTo, 0)} %, ${fmt(last.kwhAdded, 1)} kWh in ${hours(last.seconds)}, peak ${fmt(last.peakKw, 1)} kW`,
+    key: plainKey([{ colour: SERIES_COLOURS[0], label: "kW" }, { colour: SERIES_COLOURS[1], label: "% of charge" }]),
+  });
+  // ponytail: points the car did not observe are drawn like the rest; mark them if they turn out to matter.
+  sessionChart = chartInto(div, sessionSizes, () => ({
+    scales: { x: { time: false }, kw: { range: (u, lo, hi) => [0, hi * 1.1 || 1] }, soc: { range: [0, 100] } },
+    axes: [{ grid: { stroke: "#eee" }, values: (u, vs) => vs.map(v => `${fmt(v, 0)} min`) },
+      { scale: "kw", size: 54, grid: { stroke: "#eee" }, values: (u, vs) => vs.map(v => `${v} kW`) },
+      { scale: "soc", side: 1, size: 48, grid: { show: false }, values: (u, vs) => vs.map(v => `${v} %`) }],
+    series: [{ value: (u, v) => v == null ? "–" : `${fmt(v, 0)} min` },
+      { label: "kW", scale: "kw", stroke: SERIES_COLOURS[0], width: 2, points: { show: false }, value: (u, v) => `${fmt(v, 1)} kW` },
+      { label: "% of charge", scale: "soc", stroke: SERIES_COLOURS[1], width: 1.5, points: { show: false }, value: (u, v) => `${fmt(v, 0)} %` }],
+  }), [last.points.map(p => p.chargeS / 60), last.points.map(p => p.chargeKw), last.points.map(p => p.socPct)]);
 }
 
 /**
@@ -1800,7 +1850,7 @@ function fitTab(name) {
     }
   };
   if (name === "battery") fit(batteryCharts);
-  if (name === "charging") { fit(curveChart ? [curveChart] : []); chargeMap?.invalidateSize(); }
+  if (name === "charging") { fit([curveChart, sessionChart].filter(Boolean)); chargeMap?.invalidateSize(); }
   if (name === "patterns") { fit(patternCharts); placeMap?.invalidateSize(); }
 }
 
