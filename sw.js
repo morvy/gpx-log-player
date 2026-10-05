@@ -14,7 +14,7 @@ const TILE_LIMIT = 2000;
 
 // The pages' own code: whatever ships together and must not lag behind the page that imports it.
 const PAGES = ["./", "index.html", "statistics.html", "validate.html", "stats-worker.js",
-  "stats/battery.js", "stats/charges.js", "stats/coach.js", "stats/coach-view.js", "stats/episodes.js", "stats/gpx.js",
+  "stats/battery.js", "stats/charges.js", "stats/charging-csv.js", "stats/coach.js", "stats/coach-view.js", "stats/episodes.js", "stats/gpx.js",
   "stats/habits.js", "stats/num.js", "stats/patterns.js", "stats/periods.js", "stats/settings.js", "stats/store.js",
   "stats/summary.js", "stats/tabs-view.js", "stats/trip-view.js", "stats/trip.js"];
 
@@ -184,7 +184,8 @@ async function receiveShare(request) {
   const seen = new URL("statistics.html?inbox", self.location).href;
   try {
     const form = await request.formData();
-    const shared = form.getAll("gpx").filter(f => typeof f?.text === "function");
+    const shared = [...form.getAll("gpx"), ...form.getAll("file"), ...form.getAll("files")]
+      .filter(f => typeof f?.text === "function");
     // Read here: the page wants text, and a File from a share is not worth keeping alive.
     const files = await Promise.all(shared.map(async f => ({ name: f.name || "shared.gpx", text: await f.text() })));
     if (files.length) await addToInbox(files);
@@ -199,7 +200,7 @@ async function receiveShare(request) {
 
 /** The stores stats/store.js makes; kept in step with it by hand. */
 const DB = "gpx-log-player";
-const STORES = ["files", "summaries", "settings", "inbox"];
+const STORES = ["files", "summaries", "settings", "inbox", "charges"];
 
 function openWith(version) {
   const req = version ? indexedDB.open(DB, version) : indexedDB.open(DB);

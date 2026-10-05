@@ -2,7 +2,7 @@
 // next week only the new logs need adding.
 
 const NAME = "gpx-log-player";
-const STORES = ["files", "summaries", "settings", "inbox"];
+const STORES = ["files", "summaries", "settings", "inbox", "charges"];
 
 function open(version) {
   return new Promise((resolve, reject) => {

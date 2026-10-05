@@ -13,6 +13,6 @@
   ],
   "share_target": {
     "action": "./share", "method": "POST", "enctype": "multipart/form-data",
-    "params": { "files": [{ "name": "gpx", "accept": [".gpx", "application/gpx+xml", "text/xml", "application/octet-stream"] }] }
+    "params": { "files": [{ "name": "gpx", "accept": [".gpx", "application/gpx+xml", "text/xml", "application/octet-stream"] }, { "name": "file", "accept": [".csv", "text/csv"] }] }
   }
 }

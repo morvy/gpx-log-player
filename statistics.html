@@ -225,7 +225,7 @@
 <main>
 <header>
   <h1>GPX log statistics</h1>
-  <label class="file">Add GPX<input id="fileInput" type="file" accept=".gpx,application/gpx+xml" multiple></label>
+  <label class="file">Add files<input id="fileInput" type="file" accept=".gpx,application/gpx+xml,.csv,text/csv" multiple></label>
   <span class="muted" id="stored"></span>
   <nav><a href="./">Player</a><a href="validate.html">Validate</a></nav>
 </header>
@@ -315,6 +315,7 @@
 
 <script type="module">
 import { SUMMARY_VERSION, visible } from "./stats/summary.js";
+import { isChargingCsv, parseChargingCsv } from "./stats/charging-csv.js";
 import { periodStart, nextStart, previousStart, inPeriod, totals, baseline } from "./stats/periods.js";
 import { LIMITS, CALIBRATION, LEAST_LIMIT, LEAST_CALIBRATION, withLimits, withCalibration, calibrationKey } from "./stats/settings.js";
 import { SPEED_CEILING } from "./stats/coach.js";
@@ -387,13 +388,24 @@ async function importFiles(files) {
   $("importCard").hidden = false;
   $("errors").replaceChildren();
   const fresh = [];
-  let skipped = 0;
+  const failed = new Set();
+  let skipped = 0, addedCharges = 0;
   for (const [k, f] of files.entries()) {
     $("importStatus").textContent = `Reading ${k + 1} of ${files.length}: ${f.name}`;
     try {
       const text = typeof f.text === "function" ? await f.text() : f.text;
+      if (isChargingCsv(text)) {
+        const fileId = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)).then(bytes => [...new Uint8Array(bytes)].map(b => b.toString(16).padStart(2, "0")).join(""));
+        const existing = await get(db, "charges", fileId);
+        if (existing) { skipped++; continue; }
+        const session = parseChargingCsv(text);
+        await change(db, [{ store: "charges", key: fileId, value: { ...session, fileId, file: f.name } }]);
+        addedCharges++;
+        continue;
+      }
+      if (/\.csv$/i.test(f.name)) { failed.add(k); addError(f.name, "CSV is not a supported charging session file."); continue; }
       const result = await summarizeFile(f.name, text);
-      if (result.error) { addError(f.name, result.error); continue; }
+      if (result.error) { failed.add(k); addError(f.name, result.error); continue; }
       if (summaries.some(o => o.fileId === result.fileId)) { skipped++; continue; }
       // Every copy of a drive is stored; visible() counts only the fullest one.
       await change(db, [
@@ -403,6 +415,7 @@ async function importFiles(files) {
       summaries.push(...result.summaries);
       fresh.push(...result.summaries.map(s => s.id));
     } catch (e) {
+      failed.add(k);
       addError(f.name, e.message);
     }
   }
@@ -410,11 +423,12 @@ async function importFiles(files) {
   const added = fresh.filter(id => shown.has(id)).length, copies = fresh.length - added;
   $("importStatus").textContent = `Added ${plural(added, "drive")}` +
     (copies ? `, ${plural(copies, "drive")} already there in a fuller copy` : "") +
+    (addedCharges ? `, ${plural(addedCharges, "charging session")}` : "") +
     (skipped ? `, ${plural(skipped, "file")} already stored` : "") + ".";
   // Ask the browser not to clear the history when space runs low.
-  if (fresh.length) navigator.storage?.persist?.();
+  if (fresh.length || addedCharges) navigator.storage?.persist?.();
   showLatest();
-  return fresh;
+  return { fresh, failed };
 }
 
 /**
@@ -428,12 +442,13 @@ async function importInbox() {
   // between these two calls would break that, and a share landing in the gap would be deleted unread.
   const [keys, files] = await Promise.all([getAllKeys(db, "inbox"), getAll(db, "inbox")]);
   if (!files.length) return;
-  const fresh = await importFiles(files);
-  // Only once they are stored: until then the shared file exists nowhere else in this browser.
-  await change(db, keys.map(key => ({ store: "inbox", key })));
+  const { fresh, failed } = await importFiles(files);
+  // Drop only successful entries. Failed files remain in the inbox for another attempt.
+  await change(db, keys.filter((_, index) => !failed.has(index)).map(key => ({ store: "inbox", key })));
   // One shared drive is one drive somebody wants to look at, not a month of them to browse.
   if (fresh.length !== 1) return;
   const drive = summaries.find(s => s.id === fresh[0]);
+  if (!drive) return;
   const a = document.createElement("a");
   a.href = playerHref([drive.fileId], drive.start, drive.end);
   a.textContent = "Open the shared drive in the player";
@@ -1736,7 +1751,7 @@ async function droppedFiles(dt) {
     else for (const child of await readAll(entry.createReader())) await walk(child);
   };
   for (const entry of entries) await walk(entry);
-  return files.filter(f => /\.gpx$/i.test(f.name));
+  return files.filter(f => /\.gpx$/i.test(f.name) || /\.csv$/i.test(f.name));
 }
 // Only files: dragging text or a link around the page is not an import.
 const carriesFiles = e => e.dataTransfer?.types.includes("Files");

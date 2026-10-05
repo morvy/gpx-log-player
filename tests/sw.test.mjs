@@ -123,7 +123,10 @@ test("every module under stats/ is kept for offline use", async () => {
 /** A share as Android sends it: a multipart POST of one or more files under "gpx". */
 function share(files, at = "https://example.test/player/share") {
   const form = new FormData();
-  for (const [name, text] of files) form.append("gpx", new File([text], name, { type: "application/gpx+xml" }));
+  for (const [name, text] of files) {
+    const csv = name.toLowerCase().endsWith(".csv");
+    form.append(csv ? "file" : "gpx", new File([text], name, { type: csv ? "text/csv" : "application/gpx+xml" }));
+  }
   return new Request(at, { method: "POST", body: form });
 }
 
@@ -342,6 +345,16 @@ test("shared files reach the inbox as the page reads them, and the browser is se
     { name: "morning.gpx", text: "<gpx/>" },
     { name: "evening.gpx", text: "<gpx>2</gpx>" },
   ]);
+});
+
+test("a shared charging CSV reaches the inbox for normal parser import", async () => {
+  const { sw, context } = load();
+  let stored;
+  context.addToInbox = async files => { stored = files; };
+  const csv = "format_version,1\\ncharge_s,charge_kw,soc_pct,observed\\n";
+  const reply = await sw.receiveShare(share([["charging-1.csv", csv]]));
+  assert.equal(reply.headers.get("Location"), "https://example.test/player/statistics.html?inbox");
+  assert.deepEqual(Array.from(stored, f => ({ ...f })), [{ name: "charging-1.csv", text: csv }]);
 });
 
 test("a share that cannot be stored still opens the page, and says so", async () => {
