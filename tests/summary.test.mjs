@@ -113,7 +113,7 @@ test("a drive without times or positions is not readable", () => {
 
 test("a summary carries the drive's episodes, or null without power", () => {
   const withPower = summaryOf(steadyDrive({ seconds: 60 }));
-  assert.equal(SUMMARY_VERSION, 7);
+  assert.equal(SUMMARY_VERSION, 8);
   assert.deepEqual(Object.keys(withPower.episodes), ["up", "down"]);
   assert.equal(withPower.episodes.up.v0.length, 0);
   const without = summaryOf(steadyDrive({ seconds: 60 }).map(p => ({ ...p, ev: { speed_kmh: p.ev.speed_kmh } })));

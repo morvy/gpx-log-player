@@ -845,6 +845,7 @@ function batteryTotals(list) {
     lowCharge: [], lowChargeKnown: false, jumps: [], jumpsKnown: false, hardPulls: [], hardPullsKnown: false,
     cellSum: null, cellReadings: 0, cellVolts: null,
     spreadSum: SOC_BANDS.map(() => 0), spreadReadings: SOC_BANDS.map(() => 0),
+    ohmSum: 0, ohmPairs: 0, cellOhmSum: null, cellOhmReadings: 0,
     // The types are written in somebody's file, so the counts have no prototype - as in eventCounts().
     sohList: [], auxList: [], carEvents: Object.create(null),
   };
@@ -887,6 +888,15 @@ function batteryTotals(list) {
       t.spreadSum[i] += band.mv * band.readings;
       t.spreadReadings[i] += band.readings;
     });
+    // A drive's median by the pairs behind it, as the spread is weighted by its readings.
+    if (b.packResistance) {
+      t.ohmSum += b.packResistance.mohm * b.packResistance.pairs;
+      t.ohmPairs += b.packResistance.pairs;
+    }
+    if (b.cellResistance && (t.cellOhmSum ??= new Array(b.cellResistance.uohm.length).fill(0)).length === b.cellResistance.uohm.length) {
+      b.cellResistance.uohm.forEach((v, k) => { t.cellOhmSum[k] += v * b.cellResistance.readings; });
+      t.cellOhmReadings += b.cellResistance.readings;
+    }
     if (s.soh != null) t.sohList.push(s.soh);
     if (s.aux12vStart != null) t.auxList.push(s.aux12vStart);
     for (const [type, n] of Object.entries(b.carEvents ?? {})) t.carEvents[type] = (t.carEvents[type] ?? 0) + n;
@@ -896,6 +906,8 @@ function batteryTotals(list) {
     ...t,
     cellMv: t.cellReadings ? t.cellSum.map(v => v / t.cellReadings) : null,
     spreadMv: t.spreadSum.map((v, i) => t.spreadReadings[i] ? v / t.spreadReadings[i] : null),
+    packMohm: t.ohmPairs ? t.ohmSum / t.ohmPairs : null,
+    cellUohm: t.cellOhmReadings ? t.cellOhmSum.map(v => v / t.cellOhmReadings) : null,
     soh: mean(t.sohList), aux: mean(t.auxList),
   };
 }
@@ -1067,15 +1079,16 @@ function weakestCells(history) {
  * every tenth of charge. [worst] are the cell numbers to mark - the weakest by
  * the mean against the pack, as the "Weakest cell" number reads them.
  */
-function showCells(volts, worst) {
+function showCells(volts, worst, uohm) {
   const n = volts?.find(Boolean)?.min.length;
   $("cellList").hidden = !n;
   if (!n) return;
   const v = x => x == null ? "–" : fmt(x, 3);
   $("cellList").querySelector("summary").textContent =
-    `All ${n} cells, V by 10 % of charge` + (worst.length ? ` (weakest ${worst.map(c => `#${c}`).join(", ")})` : "");
+    `All ${n} cells, V by 10 % of charge` + (worst.length ? ` (weakest ${worst.map(c => `#${c}`).join(", ")})` : "") +
+    (uohm?.length === n ? `, highest resistance ${uohm.map((v, k) => [v, k + 1]).sort((a, b) => b[0] - a[0]).slice(0, 3).map(([, c]) => `#${c}`).join(", ")}` : "");
   $("cellCards").innerHTML = Array.from({ length: n }, (_, k) => `<div class="cell${worst.includes(k + 1) ? " worst" : ""}">
-    <h3>#${k + 1}</h3><table><tr><th>Charge</th><th>min</th><th>max</th><th>avg</th></tr>${
+    <h3>#${k + 1}${uohm?.length === n ? ` <span class="muted">${signed(uohm[k], 0)} µΩ</span>` : ""}</h3><table><tr><th>Charge</th><th>min</th><th>max</th><th>avg</th></tr>${
     volts.map((b, d) => `<tr><td>${d * 10}–${d * 10 + 10} %</td>${
       b ? `<td>${v(b.min[k])}</td><td>${v(b.max[k])}</td><td>${v(b.sum[k] / b.readings)}</td>` : "<td>–</td><td>–</td><td>–</td>"}</tr>`).join("")
     }</table></div>`).join("");
@@ -1126,7 +1139,7 @@ function showBattery(drives) {
   $("batteryMore").querySelector("summary").textContent = now.cards
     .map((c, i) => `${i ? c.label[0].toLowerCase() + c.label.slice(1) : c.label} (${c.figure})`).join(", ");
   $("batteryCards").innerHTML = now.cards.map(card => cardHtml(card, history, 3)).join("");
-  showCells(now.cellVolts, nowRanked.slice(0, 3).map(r => r.cell));
+  showCells(now.cellVolts, nowRanked.slice(0, 3).map(r => r.cell), now.cellUohm);
 
   chartSizes?.disconnect();
   for (const u of batteryCharts) u.destroy();
@@ -1174,6 +1187,19 @@ function showBattery(drives) {
       unit: "mV between the highest and lowest cell at rest",
       captions: spreadNow.length ? spreadNow.join(" · ") : "no resting reading in this period",
     }, xs, SOC_BANDS.map((_, i) => bandLabel(i)), SOC_BANDS.map((_, i) => history.map(p => p.spreadMv[i])));
+  }
+
+  const packMohm = history.map(p => p.packMohm);
+  const ohmWhat = "From the voltage sag of sudden pulls and lifts, brought to a 25 °C pack: a cold pack reads near twice as high.";
+  if (thin(packMohm)) {
+    chartBox($("batteryCharts"), `Pack resistance, ${words}`, {
+      body: valueBars([{ label: "at 25 °C", value: now.packMohm }], { unit: "mΩ" }),
+      captions: `${ohmWhat} ${linesAfter}`,
+    });
+  } else {
+    trendChart(`Pack resistance, by ${kind}`, {
+      unit: "mΩ at 25 °C", captions: now.packMohm == null ? "no sudden pull or lift in this period" : `${fmt(now.packMohm, 1)} mΩ now`,
+    }, xs, ["pack resistance"], [packMohm]);
   }
 
   if (!thin(soh)) trendChart("State of health", {

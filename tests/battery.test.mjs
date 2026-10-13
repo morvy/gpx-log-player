@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { parseGpx } from "../stats/gpx.js";
-import { lowCharge, chargeJumps, hardPulls, cellMeans, cellSpread, cellVolts, measureBattery, SOC_BANDS } from "../stats/battery.js";
+import { lowCharge, chargeJumps, hardPulls, cellMeans, cellSpread, cellVolts, packResistance, cellResistance, measureBattery, SOC_BANDS, PACK_B_K } from "../stats/battery.js";
 import { gpxLog } from "./gpx-builder.mjs";
 
 const near = (actual, expected, tolerance) =>
@@ -299,4 +299,39 @@ test("cell volts: lowest, highest and summed V per tenth of charge, at any curre
   assert.equal(bands[0], null);
   // No charge reading: no band to put a reply in.
   assert.equal(cellVolts(logOf(trace(10, 36).map(p => ({ ...p, cells: pack() })))), null);
+});
+
+test("pack resistance: the sag of a sudden pull, brought to 25 °C", () => {
+  // 60 mΩ at 25 °C: 350 V at rest, 6 V less at 100 A. Every other second the pedal goes down or comes up.
+  const drive = (c, sag, swing = 100) => logOf(trace(40, 36, k => ({
+    current_a: k % 2 ? swing : 0, pack_voltage_v: 350 - (k % 2 ? sag : 0), battery_temp_c: c,
+  })));
+  const warm = packResistance(drive(25, 6));
+  near(warm.mohm, 60, 1e-9);
+  assert.equal(warm.pairs, 40);
+  // The same pack at 5 °C sags further, and reads the same once brought to 25 °C.
+  near(packResistance(drive(5, 6 * Math.exp(PACK_B_K * (1 / 278.15 - 1 / 298.15)))).mohm, 60, 1e-9);
+
+  // A swing under 50 A says nothing over the BMS's rounding, and a log without the pack temperature
+  // cannot say which pack it measured.
+  assert.equal(packResistance(drive(25, 0, 30)), null);
+  assert.equal(packResistance(logOf(trace(40, 36, k => ({ current_a: k % 2 ? 100 : 0, pack_voltage_v: 350 })))), null);
+});
+
+test("cell resistance: each cell's sag against the pack median, fitted over the drive", () => {
+  // Every cell 0.6 mΩ, cell 7 0.7 mΩ: 100 µΩ above the median. The charge falls through the drive and
+  // cell 7 holds less, so it also drifts low on its own - which the fit must not read as resistance.
+  const points = trace(40, 36, k => ({ current_a: [0, 150, -40, 60][k % 4], soc_percent: 80 - k / 2 }))
+    .map(p => {
+      const k = (p.t - START) / 1000, i = p.ev.current_a;
+      return { ...p, cells: Array.from({ length: 96 }, (_, c) => 3.9 - i * (c === 6 ? 0.0007 : 0.0006) - (c === 6 ? k * 0.0002 : 0)) };
+    });
+  const { uohm, readings } = cellResistance(logOf(points));
+  assert.equal(readings, 41);
+  near(uohm[6], 100, 1e-6);
+  near(uohm[0], 0, 1e-6);
+
+  // Too few replies, or a current that never moved, is not enough to fit.
+  assert.equal(cellResistance(logOf(points.slice(0, 10))), null);
+  assert.equal(cellResistance(logOf(points.map(p => ({ ...p, ev: { ...p.ev, current_a: 20 } })))), null);
 });

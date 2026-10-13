@@ -5,7 +5,7 @@
 // import it instead once module service workers can be relied on.
 
 // Bump this and every older cache goes at the next activation.
-const VERSION = "v3";
+const VERSION = "v4";
 const CACHE = `gpx-log-player-${VERSION}`;
 // Tiles are the map itself, not this site's code, and survive a new version of it.
 const TILES = "gpx-log-player-tiles";

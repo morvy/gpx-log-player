@@ -261,6 +261,68 @@ export function cellVolts(log) {
 }
 
 /**
+ * How steeply the pack's resistance falls as it warms, as an Arrhenius constant
+ * in K: R(T) = R25 · exp(B · (1/T − 1/298.15)). Fitted on 21 drives of one
+ * Honda e from 9 to 30 °C (88 mΩ cold, 47 mΩ warm), which it brings to one
+ * figure within 3 %.
+ * Fitted on one car's pack between 9 and 30 °C; refit if a colder winter's drives read off the line.
+ */
+export const PACK_B_K = 2400;
+const PAIR_MS = 3000;        // over this the pack relaxes between the two readings, and the sag reads as more resistance
+const PAIR_A = 50;           // a smaller swing is mostly the BMS's 0.1 V rounding
+const at25 = (mohm, c) => mohm * Math.exp(PACK_B_K * (1 / 298.15 - 1 / (c + 273.15)));
+
+/**
+ * The pack's resistance in mΩ, brought to 25 °C: the median of −ΔV/ΔI over
+ * every step that swung the current by PAIR_A or more within PAIR_MS. One reading
+ * alone cannot say it - the pack's resting voltage is unknown - but two a second
+ * apart share it, and what changed between them is the current. A cold pack
+ * near doubles it, so without the temperature a winter month would read as a
+ * pack ageing, and a log without one has no figure.
+ */
+export function packResistance(log) {
+  const { n, t, cols } = log;
+  const v = usable(cols.pack_voltage_v), a = usable(cols.current_a), temp = carried(usable(cols.battery_temp_c), n);
+  if (!v || !a || !temp) return null;
+  const found = [];
+  for (let i = 1; i < n; i++) {
+    const di = a[i] - a[i - 1];
+    if (!(Math.abs(di) >= PAIR_A) || !(t[i] - t[i - 1] <= PAIR_MS) || !ok(v[i]) || !ok(v[i - 1]) || !ok(temp[i])) continue;
+    found.push(at25(-(v[i] - v[i - 1]) / di * 1000, temp[i]));
+  }
+  return found.length ? { mohm: median(found), pairs: found.length } : null;
+}
+
+const CELL_FIT_REPLIES = 20;   // fewer replies and one odd reading moves a cell by more than the cells differ
+const CELL_FIT_SWING_A = 80;   // the current has to have moved for its effect to be measured
+
+/**
+ * Each cell's resistance against the pack median, in µΩ, cell 1 first. The car
+ * answers with its cells every twenty seconds or so, too seldom for two replies
+ * either side of one change in current, so every reply of the drive is fitted
+ * at once: a cell's distance from the median, against the current with what the
+ * charge explains taken out (a cell of less capacity drifts from the median as
+ * the charge falls, whatever the current). Against the median, the temperature
+ * every cell shares cancels out, which the pack's own figure cannot do.
+ */
+export function cellResistance(log) {
+  const a = usable(log.cols.current_a), soc = carried(usable(log.cols.soc_percent), log.n);
+  if (!a || !soc) return null;
+  const runs = cellRuns(log).filter(r => ok(a[r.i]) && ok(soc[r.i]));
+  if (runs.length < CELL_FIT_REPLIES) return null;
+  const I = runs.map(r => a[r.i]), S = runs.map(r => soc[r.i]);
+  if (Math.max(...I) - Math.min(...I) < CELL_FIT_SWING_A) return null;
+  const mean = x => x.reduce((p, q) => p + q, 0) / x.length;
+  const mi = mean(I), ms = mean(S), ss = S.reduce((p, s) => p + (s - ms) ** 2, 0);
+  const b = ss ? S.reduce((p, s, j) => p + (s - ms) * (I[j] - mi), 0) / ss : 0;
+  const e = I.map((x, j) => x - mi - b * (S[j] - ms)), ee = e.reduce((p, x) => p + x * x, 0);
+  if (!(ee > 0)) return null;
+  // mV per A is mΩ; the sag is the cell's resistance, and a pull (positive current) sags it.
+  const uohm = runs[0].dev.map((_, k) => -runs.reduce((p, r, j) => p + e[j] * r.dev[k], 0) / ee * 1000);
+  return { uohm, readings: runs.length };
+}
+
+/**
  * The car's own events, counted by the type it wrote on them. The type comes out
  * of somebody's file, so the counts have no prototype: an event of type
  * __proto__ would otherwise set no own property and go uncounted.
@@ -284,6 +346,8 @@ export function measureBattery(log) {
     cells: cellMeans(log),
     cellSpread: cellSpread(log),
     cellVolts: cellVolts(log),
+    packResistance: packResistance(log),
+    cellResistance: cellResistance(log),
     carEvents: eventCounts(log),
   };
 }
