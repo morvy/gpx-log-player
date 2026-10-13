@@ -237,6 +237,29 @@ export function cellSpread(log) {
   return bands;
 }
 
+/** Tenths of charge the cell list is cut into: 0-10 % first, 90-100 % last. */
+export const CELL_DECILES = 10;
+
+/**
+ * Each cell's voltage by tenth of charge: per band, the lowest, the highest and
+ * the sum of the V read in it, cell 1 first, and the replies behind them. Read at
+ * any current, unlike the spread: a cell sagging under a pull is what its minimum
+ * is there to show. Every reply weighs the same; a band no reply came in is null.
+ */
+export function cellVolts(log) {
+  const runs = cellRuns(log), soc = carried(usable(log.cols.soc_percent), log.n);
+  if (!runs.length || !soc) return null;
+  const bands = new Array(CELL_DECILES).fill(null);
+  for (const r of runs) {
+    if (!ok(soc[r.i])) continue;
+    const d = Math.min(CELL_DECILES - 1, Math.max(0, Math.floor(soc[r.i] / 10)));
+    const b = bands[d] ??= { min: Array.from(r.cells), max: Array.from(r.cells), sum: new Array(r.cells.length).fill(0), readings: 0 };
+    r.cells.forEach((v, k) => { b.min[k] = Math.min(b.min[k], v); b.max[k] = Math.max(b.max[k], v); b.sum[k] += v; });
+    b.readings++;
+  }
+  return bands.some(Boolean) ? bands : null;
+}
+
 /**
  * The car's own events, counted by the type it wrote on them. The type comes out
  * of somebody's file, so the counts have no prototype: an event of type
@@ -260,6 +283,7 @@ export function measureBattery(log) {
     hardPulls: hardPulls(log),
     cells: cellMeans(log),
     cellSpread: cellSpread(log),
+    cellVolts: cellVolts(log),
     carEvents: eventCounts(log),
   };
 }

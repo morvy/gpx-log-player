@@ -5,7 +5,7 @@ import { measureEpisodes } from "./episodes.js";
 import { calibrationKey } from "./settings.js";
 
 /** Raise when a field is added or changes meaning: stored summaries are then rebuilt from their files. */
-export const SUMMARY_VERSION = 6;
+export const SUMMARY_VERSION = 7;
 
 const nul = v => ok(v) ? v : null;
 

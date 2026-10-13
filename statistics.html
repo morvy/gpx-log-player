@@ -91,6 +91,13 @@
   .more summary { font-size: 13px; }
   .more .habits { gap: 20px; margin-top: 10px; }
   .more .habit { border: 0; border-radius: 0; padding: 0; }
+  /* Every cell, ten rows each. The weakest wear the accent, a border no wider than the plain ones' box. */
+  .cells { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 12px; margin-top: 10px; }
+  .cells .cell { border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+  .cells .cell.worst { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); }
+  .cells h3 { margin: 0 0 4px; }
+  .cells th, .cells td { padding: 2px 6px 2px 0; font-size: 12px; text-align: right; }
+  .cells th:first-child, .cells td:first-child { text-align: left; }
   #chargeMap, #placeMap { height: 260px; border-radius: 8px; }
   /* Settings: three panels in a row, the two limit panels drawn straight into it; they stack under 900 px. */
   .settings { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; align-items: start; }
@@ -270,6 +277,7 @@
     <div id="batteryStats"></div>
     <div class="pair" id="batteryCharts"></div>
     <details class="more" id="batteryMore"><summary></summary><div class="habits" id="batteryCards"></div></details>
+    <details class="more" id="cellList" hidden><summary></summary><div class="cells" id="cellCards"></div></details>
   </section>
   <section role="tabpanel" id="panel-charging" aria-labelledby="tab-charging" hidden>
     <div id="chargeStats"></div>
@@ -322,7 +330,7 @@ import { periodStart, nextStart, previousStart, inPeriod, totals, baseline } fro
 import { LIMITS, CALIBRATION, LEAST_LIMIT, LEAST_CALIBRATION, withLimits, withCalibration, calibrationKey } from "./stats/settings.js";
 import { SPEED_CEILING } from "./stats/coach.js";
 import { SPEED_BANDS } from "./stats/habits.js";
-import { SOC_BANDS } from "./stats/battery.js";
+import { SOC_BANDS, CELL_DECILES } from "./stats/battery.js";
 import { learnKwhPerPoint, findCharges, curveCharges, chargingCurve, noSocCount } from "./stats/charges.js";
 import { AC_BANDS, distancePerWeek, weekdayHours, places, tempScatter } from "./stats/patterns.js";
 import { openDb, getAll, getAllKeys, get, change } from "./stats/store.js";
@@ -835,7 +843,7 @@ function showHabits(drives) {
 function batteryTotals(list) {
   const t = {
     lowCharge: [], lowChargeKnown: false, jumps: [], jumpsKnown: false, hardPulls: [], hardPullsKnown: false,
-    cellSum: null, cellReadings: 0,
+    cellSum: null, cellReadings: 0, cellVolts: null,
     spreadSum: SOC_BANDS.map(() => 0), spreadReadings: SOC_BANDS.map(() => 0),
     // The types are written in somebody's file, so the counts have no prototype - as in eventCounts().
     sohList: [], auxList: [], carEvents: Object.create(null),
@@ -863,6 +871,17 @@ function batteryTotals(list) {
       b.cells.mv.forEach((v, k) => { t.cellSum[k] += v * b.cells.readings; });
       t.cellReadings += b.cells.readings;
     }
+    // Same rule for the voltages by tenth of charge: the lowest of the lows, the highest of the highs.
+    b.cellVolts?.forEach((band, d) => {
+      if (!band) return;
+      const into = (t.cellVolts ??= new Array(CELL_DECILES).fill(null));
+      if (!into[d]) { into[d] = { min: [...band.min], max: [...band.max], sum: [...band.sum], readings: band.readings }; return; }
+      if (into[d].min.length !== band.min.length) return;
+      band.min.forEach((v, k) => { into[d].min[k] = Math.min(into[d].min[k], v); });
+      band.max.forEach((v, k) => { into[d].max[k] = Math.max(into[d].max[k], v); });
+      band.sum.forEach((v, k) => { into[d].sum[k] += v; });
+      into[d].readings += band.readings;
+    });
     b.cellSpread?.forEach((band, i) => {
       if (band.mv == null) return;
       t.spreadSum[i] += band.mv * band.readings;
@@ -1043,6 +1062,25 @@ function weakestCells(history) {
   return sum.map((v, k) => ({ cell: k + 1, mv: weight[k] ? v / weight[k] : 0 })).sort((a, b) => a.mv - b.mv);
 }
 
+/**
+ * Every cell of the period, each with its lowest, highest and mean voltage in
+ * every tenth of charge. [worst] are the cell numbers to mark - the weakest by
+ * the mean against the pack, as the "Weakest cell" number reads them.
+ */
+function showCells(volts, worst) {
+  const n = volts?.find(Boolean)?.min.length;
+  $("cellList").hidden = !n;
+  if (!n) return;
+  const v = x => x == null ? "–" : fmt(x, 3);
+  $("cellList").querySelector("summary").textContent =
+    `All ${n} cells, V by 10 % of charge` + (worst.length ? ` (weakest ${worst.map(c => `#${c}`).join(", ")})` : "");
+  $("cellCards").innerHTML = Array.from({ length: n }, (_, k) => `<div class="cell${worst.includes(k + 1) ? " worst" : ""}">
+    <h3>#${k + 1}</h3><table><tr><th>Charge</th><th>min</th><th>max</th><th>avg</th></tr>${
+    volts.map((b, d) => `<tr><td>${d * 10}–${d * 10 + 10} %</td>${
+      b ? `<td>${v(b.min[k])}</td><td>${v(b.max[k])}</td><td>${v(b.sum[k] / b.readings)}</td>` : "<td>–</td><td>–</td><td>–</td>"}</tr>`).join("")
+    }</table></div>`).join("");
+}
+
 /** A change with its sign, and a true minus sign: "+0.4", "−1.2". */
 const signed = (v, dec) => (v > 0 ? "+" : "") + fmt(v, dec).replace("-", "−");
 
@@ -1088,6 +1126,7 @@ function showBattery(drives) {
   $("batteryMore").querySelector("summary").textContent = now.cards
     .map((c, i) => `${i ? c.label[0].toLowerCase() + c.label.slice(1) : c.label} (${c.figure})`).join(", ");
   $("batteryCards").innerHTML = now.cards.map(card => cardHtml(card, history, 3)).join("");
+  showCells(now.cellVolts, nowRanked.slice(0, 3).map(r => r.cell));
 
   chartSizes?.disconnect();
   for (const u of batteryCharts) u.destroy();

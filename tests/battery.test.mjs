@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { parseGpx } from "../stats/gpx.js";
-import { lowCharge, chargeJumps, hardPulls, cellMeans, cellSpread, measureBattery, SOC_BANDS } from "../stats/battery.js";
+import { lowCharge, chargeJumps, hardPulls, cellMeans, cellSpread, cellVolts, measureBattery, SOC_BANDS } from "../stats/battery.js";
 import { gpxLog } from "./gpx-builder.mjs";
 
 const near = (actual, expected, tolerance) =>
@@ -281,4 +281,22 @@ test("driving on an empty pack keeps the ground crossed on a step of no length",
   assert.deepEqual(moments.map(m => m.soc), [3], "one point of charge, one stretch");
   near(under(moments, 5), 60, 1e-9);
   near(under(moments, 5, "km"), 60 * 10 / 1000, 1e-3);
+});
+
+test("cell volts: lowest, highest and summed V per tenth of charge, at any current", () => {
+  // Three replies: cell 7 30 mV low at 95 % under a 60 A pull, 10 mV low at 92 %, and 50 mV low at 45 %.
+  const at = { 0: [30, 95, 60], 20: [10, 92, 2], 40: [50, 45, 2] };
+  const points = trace(60, 36).map((p, k) => at[k]
+    ? { ...p, cells: pack(at[k][0], 7), ev: { ...p.ev, soc_percent: at[k][1], current_a: at[k][2] } } : p);
+  const bands = cellVolts(logOf(points));
+  assert.equal(bands.length, 10);
+  assert.equal(bands[9].readings, 2, "the pull counts too");
+  near(bands[9].min[6], 3.67, 1e-9);
+  near(bands[9].max[6], 3.69, 1e-9);
+  near(bands[9].sum[6] / bands[9].readings, 3.68, 1e-9);
+  near(bands[9].min[0], 3.7, 1e-9);
+  near(bands[4].min[6], 3.65, 1e-9);
+  assert.equal(bands[0], null);
+  // No charge reading: no band to put a reply in.
+  assert.equal(cellVolts(logOf(trace(10, 36).map(p => ({ ...p, cells: pack() })))), null);
 });
