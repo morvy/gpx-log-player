@@ -27,12 +27,12 @@ export function haversineKm(a1, o1, a2, o2) {
   return 12742 * Math.asin(Math.sqrt(h));
 }
 
-/** kWh out of (positive) and back into (negative) the pack, trapezoids over time, gaps over 10 s skipped. */
-export function integrate(power, t, i0, i1) {
+/** kWh out of (positive) and back into (negative) the pack, trapezoids over time, gaps over [gapMs] skipped. */
+export function integrate(power, t, i0, i1, gapMs = 10000) {
   let out = 0, back = 0, pi = -1;
   for (let i = i0; i <= i1; i++) {
     if (!ok(power[i])) continue;
-    if (pi >= 0 && t[i] - t[pi] <= 10000) {
+    if (pi >= 0 && t[i] - t[pi] <= gapMs) {
       const kwh = (power[pi] + power[i]) / 2 * (t[i] - t[pi]) / 3.6e6;
       if (kwh >= 0) out += kwh; else back -= kwh;
     }

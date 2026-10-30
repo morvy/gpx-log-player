@@ -36,7 +36,6 @@ test("a steady drive: distance, time, energy from the counters, conditions", () 
   assert.equal(s.outsideTemp, 20);
   assert.equal(s.packTempStart, 25);
   assert.equal(s.packTempEnd, 26);
-  near(s.acShare, 300 / 601, 1e-9);
   assert.equal(s.aux12vStart, 12.6);
   assert.equal(s.soh, 89.4);
   assert.equal(s.startLat, 48.1);
@@ -53,7 +52,9 @@ test("without energy counters, energy and regen come from power over time", () =
   near(s.regen, 1200 / 3600, 1e-9);
   near(s.energy, 1793 / 3600, 1e-9);
   assert.equal(s.socStart, null);
-  assert.equal(s.acShare, null);
+  assert.equal(s.climateKw, null);
+  assert.equal(s.climateKwh, null);
+  assert.equal(s.per100NoClimate, null);
   assert.equal(s.outsideTemp, null);
 });
 
@@ -113,9 +114,39 @@ test("a drive without times or positions is not readable", () => {
 
 test("a summary carries the drive's episodes, or null without power", () => {
   const withPower = summaryOf(steadyDrive({ seconds: 60 }));
-  assert.equal(SUMMARY_VERSION, 8);
+  assert.equal(SUMMARY_VERSION, 9);
   assert.deepEqual(Object.keys(withPower.episodes), ["up", "down"]);
   assert.equal(withPower.episodes.up.v0.length, 0);
   const without = summaryOf(steadyDrive({ seconds: 60 }).map(p => ({ ...p, ev: { speed_kmh: p.ev.speed_kmh } })));
   assert.equal(without.episodes, null);
+});
+
+test("climate, battery heat and the consumption without climate, from the aux columns", () => {
+  const s = summaryOf(steadyDrive({ seconds: 600, ev: k => ({
+    energy_kwh: k / 3600 * 5, aux_power_kw: 3.5, dcdc_power_kw: 0.5, climate_kw: 2, battery_heat_kw: k < 300 ? 1 : 0,
+  }) }));
+  near(s.climateKwh, 2 / 6, 1e-9);
+  near(s.climateKw, 2, 1e-9);
+  near(s.auxKwh, 3.5 / 6, 1e-9);
+  near(s.dcdcKwh, 0.5 / 6, 1e-9);
+  assert.equal(s.heatSeconds, 299);
+  near(s.per100NoClimate, (s.energy - s.climateKwh) / s.km * 100, 1e-9);
+  assert.ok(s.per100NoClimate < s.per100);
+});
+
+test("an aux load is counted across a gap in the points, as the energy counter counts it", () => {
+  const points = steadyDrive({ seconds: 600, ev: () => ({ climate_kw: 3 }) }).filter((p, k) => k < 100 || k > 200);
+  near(summaryOf(points).climateKwh, 3 / 6, 1e-9);
+});
+
+test("an aux load read late in a drive is held back to its start", () => {
+  const s = summaryOf(steadyDrive({ seconds: 600, ev: k => k < 300 ? {} : { climate_kw: 3 } }));
+  near(s.climateKwh, 3 / 6, 1e-9);
+});
+
+test("a first point with no time leaves the climate figure a number", () => {
+  const log = parseGpx(gpxLog({ points: steadyDrive({ seconds: 60, ev: () => ({ climate_kw: 3 }) }) }));
+  log.t[0] = NaN;
+  const s = summarize(log, { id: "a:0", fileId: "a", file: "a.gpx" });
+  near(s.climateKwh, 3 * 59 / 3600, 1e-9);
 });

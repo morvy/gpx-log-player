@@ -225,3 +225,14 @@ test("the busiest hour of the week, Monday first", () => {
   grid[6][18] = 3421;
   assert.equal(busiestTime(grid).label, "Sun 18:00");
 });
+
+test("the Battery tab's lists say so when empty and carry their figures when not", async () => {
+  const { heatingHtml, parkedHtml } = await import("../stats/tabs-view.js");
+  assert.match(heatingHtml([]), /did not heat/);
+  assert.match(parkedHtml([]), /No charge lost/);
+  const heat = heatingHtml([{ start: 0, heatKwh: 0.5, heatSeconds: 600, packTempStart: -3, outsideTemp: null }]);
+  assert.match(heat, /0\.50/);
+  assert.match(heat, /10 min/);
+  assert.match(heat, /−3\.0 °C/);
+  assert.match(parkedHtml([{ at: 0, hours: 48, from: 70, to: 66.1, points: 3.9, kwh: 0.95 }]), /3\.9 points, about 0\.95 kWh/);
+});

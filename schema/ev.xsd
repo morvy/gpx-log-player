@@ -103,7 +103,7 @@
     <xs:annotation><xs:documentation>Highest cell state of charge, %.</xs:documentation></xs:annotation>
   </xs:element>
   <xs:element name="soh_percent" type="xs:decimal">
-    <xs:annotation><xs:documentation>Battery state of health, %.</xs:documentation></xs:annotation>
+    <xs:annotation><xs:documentation>Battery state of health, Ah; a new pack holds 100. The name is the one logs already carry.</xs:documentation></xs:annotation>
   </xs:element>
   <xs:element name="cell_voltage_min_v" type="xs:decimal">
     <xs:annotation><xs:documentation>Lowest cell voltage as the car reports it, V.</xs:documentation></xs:annotation>
@@ -131,6 +131,19 @@
   </xs:element>
   <xs:element name="aux_12v_v" type="xs:decimal">
     <xs:annotation><xs:documentation>12 V battery voltage, V.</xs:documentation></xs:annotation>
+  </xs:element>
+
+  <xs:element name="aux_power_kw" type="xs:decimal">
+    <xs:annotation><xs:documentation>Everything on the high-voltage side but traction, kW: dcdc_power_kw + battery_heat_kw + climate_kw.</xs:documentation></xs:annotation>
+  </xs:element>
+  <xs:element name="dcdc_power_kw" type="xs:decimal">
+    <xs:annotation><xs:documentation>DC/DC load, the 12 V side, kW.</xs:documentation></xs:annotation>
+  </xs:element>
+  <xs:element name="battery_heat_kw" type="xs:decimal">
+    <xs:annotation><xs:documentation>Power spent heating the pack, kW, 0 when off.</xs:documentation></xs:annotation>
+  </xs:element>
+  <xs:element name="climate_kw" type="xs:decimal">
+    <xs:annotation><xs:documentation>Cabin heating and cooling, kW: aux_power_kw less dcdc_power_kw and battery_heat_kw.</xs:documentation></xs:annotation>
   </xs:element>
 
 </xs:schema>

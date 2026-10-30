@@ -59,7 +59,8 @@ export function recommendHtml(rec, compare) {
 
 /** What the line under the chart says about where it came from. */
 export function curveCaption(model, temp) {
-  if (model.source === "physics") return "Based on the physics settings, not your driving.";
+  if (model.source === "physics") return "Based on the physics settings, not your driving." +
+    (model.auxKw == null ? "" : ` Aux power ${fmt(model.auxKw, 1)} kW, measured in your logs.`);
   const range = Number.isFinite(temp) ? `from ${signed(temp - TEMP_NEAR)} to ${signed(temp + TEMP_NEAR)} °C` : null;
   const whose = model.atTemp ? `Your driving ${range}`
     : `From all your driving${range ? `, too little of it ${range}` : ""}`;

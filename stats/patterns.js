@@ -107,31 +107,35 @@ export function places(list, radiusM) {
   return found.map(({ latSum, lonSum, ...p }) => p).sort((a, b) => b.visits - a.visits || a.first - b.first);
 }
 
-/** Where a drive's A/C sits: off, some of the time, or on - the page's colours and its legend. */
-export const AC_BANDS = [0, 0.25, 0.75];
-export const acBandOf = share => {
-  if (share == null) return null;
+/**
+ * How hard the climate worked, kW averaged over the drive - the page's colours
+ * and its legend. The fan alone is about 0.1 kW and the A/C about 0.7; only
+ * heating passes 2.
+ */
+export const CLIMATE_BANDS = [0, 0.5, 2];
+export const climateBandOf = kw => {
+  if (kw == null) return null;
   let b = 0;
-  while (b + 1 < AC_BANDS.length && share >= AC_BANDS[b + 1]) b++;
+  while (b + 1 < CLIMATE_BANDS.length && kw >= CLIMATE_BANDS[b + 1]) b++;
   return b;
 };
 
 /**
  * One point per drive: what it cost against the weather it was driven in.
  * A drive with no outside temperature, or none of its own energy to divide,
- * cannot be placed and is counted instead; a drive whose log carries no A/C
- * column keeps its point and loses only its colour - a basic log would
+ * cannot be placed and is counted instead; a drive whose log carries no
+ * climate column keeps its point and loses only its colour - a basic log would
  * otherwise take the whole scatter with it.
  */
 export function tempScatter(list) {
   const points = [];
-  let skipped = 0, noAc = 0;
+  let skipped = 0, noClimate = 0;
   for (const s of list) {
     if (s.outsideTemp == null || s.per100 == null) { skipped++; continue; }
-    if (s.acShare == null) noAc++;
-    points.push({ at: s.start, temp: s.outsideTemp, per100: s.per100, km: s.km, acShare: s.acShare ?? null, ac: acBandOf(s.acShare ?? null) });
+    if (s.climateKw == null) noClimate++;
+    points.push({ at: s.start, temp: s.outsideTemp, per100: s.per100, km: s.km, climateKw: s.climateKw ?? null, band: climateBandOf(s.climateKw ?? null) });
   }
   // uPlot wants its x ascending, and the coldest drive first is how the chart is read anyway.
   points.sort((a, b) => a.temp - b.temp || a.at - b.at);
-  return { points, skipped, noAc };
+  return { points, skipped, noClimate };
 }

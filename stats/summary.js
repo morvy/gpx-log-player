@@ -5,7 +5,7 @@ import { measureEpisodes } from "./episodes.js";
 import { calibrationKey } from "./settings.js";
 
 /** Raise when a field is added or changes meaning: stored summaries are then rebuilt from their files. */
-export const SUMMARY_VERSION = 8;
+export const SUMMARY_VERSION = 9;
 
 const nul = v => ok(v) ? v : null;
 
@@ -17,11 +17,18 @@ export function summarize(log, { id, fileId, file, calibration }) {
   const final = a => a ? nul(lastValid(a, 0, last)) : null;
   const lowest = a => { let m = NaN; if (a) for (const v of a) if (ok(v) && !(v >= m)) m = v; return nul(m); };
   const mean = a => { let sum = 0, c = 0; if (a) for (const v of a) if (ok(v)) { sum += v; c++; } return c ? sum / c : null; };
-  const share = a => { let on = 0, c = 0; if (a) for (const v of a) if (ok(v)) { c++; if (v >= 1) on++; } return c ? on / c : null; };
+  // A log without the column has no figure, which is not the same as nought. An aux load runs on through a
+  // gap in the points, as the car's energy counter does, and a drive has no gap of 5 minutes to overstate.
+  // The first reading can come well after the drive's first point, so it is held back to there too.
+  const kwhOf = a => {
+    if (!usable(a)) return null;
+    const i = a.findIndex((v, k) => ok(v) && ok(t[k]));
+    return nul(integrate(a, t, 0, last, Infinity).out + a[i] * (t[i] - firstValid(t, 0, last)) / 3.6e6);
+  };
 
   const speed = speedOf(cols);
   const hourSeconds = new Array(24).fill(0);
-  let km = 0, moving = 0;
+  let km = 0, moving = 0, heatSeconds = 0;
   for (let i = 1; i < n; i++) {
     km += haversineKm(lat[i - 1], lon[i - 1], lat[i], lon[i]);
     const dt = t[i] - t[i - 1];
@@ -30,6 +37,7 @@ export function summarize(log, { id, fileId, file, calibration }) {
       moving += dt / 1000;
       hourSeconds[new Date(t[i]).getHours()] += dt / 1000;
     }
+    if (cols.battery_heat_kw?.[i] > 0 && ok(dt)) heatSeconds += dt / 1000;
   }
 
   // The same readings the habits are measured from, so one drive never reads two ways in one record.
@@ -42,6 +50,9 @@ export function summarize(log, { id, fileId, file, calibration }) {
   const regen = r ? span(r) : flow ? flow.back : NaN;
   const out = e && r ? energy + regen : flow ? flow.out : NaN;
   const start = firstValid(t, 0, last), end = lastValid(t, 0, last);
+  const climateKwh = kwhOf(cols.climate_kw), auxKwh = kwhOf(cols.aux_power_kw);
+  // Over the time and not the points: they bunch up, and thin out where the load is highest.
+  const meanKw = kwh => kwh != null && end > start ? kwh / ((end - start) / 3.6e6) : null;
 
   return {
     version: SUMMARY_VERSION, calibration: calibrationKey(calibration), id, fileId, file, vehicle: log.vehicle, points: n,
@@ -51,7 +62,12 @@ export function summarize(log, { id, fileId, file, calibration }) {
     energy: nul(energy), out: nul(out), regen: nul(regen),
     per100: km > 0.05 && ok(energy) ? energy / km * 100 : null,
     outsideTemp: mean(cols.outside_temp_c), packTempStart: first(cols.battery_temp_c), packTempEnd: final(cols.battery_temp_c),
-    acShare: share(cols.aircon), aux12vStart: first(cols.aux_12v_v), soh: final(cols.soh_percent), hourSeconds,
+    aux12vStart: first(cols.aux_12v_v), soh: final(cols.soh_percent), hourSeconds,
+    odoStart: first(cols.odometer_km), odoEnd: final(cols.odometer_km),
+    auxKw: meanKw(auxKwh), climateKw: meanKw(climateKwh),
+    auxKwh, climateKwh, dcdcKwh: kwhOf(cols.dcdc_power_kw),
+    heatKwh: kwhOf(cols.battery_heat_kw), heatSeconds,
+    per100NoClimate: km > 0.05 && ok(energy) && climateKwh != null ? (energy - climateKwh) / km * 100 : null,
     habits: measureHabits(log, calibration),
     battery: measureBattery(log),
     episodes: measureEpisodes(log, calibration),

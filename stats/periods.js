@@ -32,14 +32,20 @@ export function inPeriod(summaries, kind, start) {
 
 /** Rates come from the period's totals, never an average of drive rates - a 2 km trip must not swing them. */
 export function totals(list) {
-  let km = 0, seconds = 0, energy = 0, energyKm = 0, out = 0, regen = 0;
+  let km = 0, seconds = 0, energy = 0, energyKm = 0, out = 0, regen = 0, climate = null, noClimate = 0, noClimateKm = 0;
   for (const s of list) {
     km += s.km;
     seconds += s.moving;
     if (s.energy != null) { energy += s.energy; energyKm += s.km; }
     if (s.out != null && s.regen != null) { out += s.out; regen += s.regen; }
+    if (s.climateKwh != null) climate += s.climateKwh;
+    // Only the drives that read the climate: the older ones would pull the figure towards "with climate".
+    if (s.per100NoClimate != null) { noClimate += s.energy - s.climateKwh; noClimateKm += s.km; }
   }
-  return { drives: list.length, km, seconds, energy, per100: energyKm > 0.05 ? energy / energyKm * 100 : null, regenShare: out > 0 ? regen / out : null };
+  return {
+    drives: list.length, km, seconds, energy, per100: energyKm > 0.05 ? energy / energyKm * 100 : null, regenShare: out > 0 ? regen / out : null,
+    climateKwh: climate, per100NoClimate: noClimateKm > 0.05 ? noClimate / noClimateKm * 100 : null,
+  };
 }
 
 /**
@@ -53,7 +59,11 @@ export function baseline(summaries, kind, start, count = 4) {
   let from = start, periods = 0;
   while (periods < count && from > earliest) { from = shift(kind, from, -1); periods++; }
   if (!periods) return null;
-  const t = totals(summaries.filter(s => s.start >= from && s.start < start));
+  const before = summaries.filter(s => s.start >= from && s.start < start);
+  const t = totals(before);
   if (!t.drives) return null;
-  return { ...t, periods, drives: t.drives / periods, km: t.km / periods, seconds: t.seconds / periods, energy: t.energy / periods };
+  return { ...t, periods, drives: t.drives / periods, km: t.km / periods, seconds: t.seconds / periods, energy: t.energy / periods,
+    // Per period that read the climate: the weeks before the logs carried it are unknown, not nought.
+    climateKwh: t.climateKwh == null ? null
+      : t.climateKwh / new Set(before.filter(s => s.climateKwh != null).map(s => periodStart(kind, s.start))).size };
 }

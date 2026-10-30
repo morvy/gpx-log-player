@@ -46,43 +46,74 @@ const noSoc = s => s.socStart == null && s.socEnd == null;
 export const noSocCount = drives => drives.filter(noSoc).length;
 
 /**
+ * Each drive with the last earlier drive whose end carries a charge level. A
+ * basic log in between is skipped rather than breaking the pair - it says
+ * nothing about charge, but the drives either side of it still do - and the
+ * distance it covered comes along in [skippedM].
+ */
+function* gaps(summaries) {
+  const order = [...summaries].sort((a, b) => a.start - b.start);
+  let a = null;         // the latest earlier drive whose end carries a charge level
+  let skippedM = 0;      // metres covered by basic logs skipped since [a]
+  for (const b of order) {
+    if (a && b.socStart != null) yield { a, b, skippedM };
+    if (b.socEnd != null) { a = b; skippedM = 0; }
+    else if (noSoc(b)) skippedM += b.km * 1000;
+    // socStart known, socEnd not: not a basic log and not a full anchor either, so it may have just
+    // paired as the far end of a gap above, but it cannot carry the chain past itself - forgetting
+    // the anchor here is what stops a later drive reaching back across it to a stale one.
+    else { a = null; skippedM = 0; }
+  }
+}
+
+/**
  * The charges between drives: the charge went up while the car was not
- * driving, so it was plugged in. A basic log in between is skipped rather
- * than breaking the pair - it says nothing about charging, but the drives
- * either side of it still do - and the distance it covered is added to the
- * move check, since driving it unlogged is exactly the case that check is for.
+ * driving, so it was plugged in. The distance a skipped basic log covered is
+ * added to the move check, since driving it unlogged is exactly the case that
+ * check is for.
  * The kW is an average over the whole gap with the parking in it, which
  * makes it a floor and never a peak.
  */
 export function findCharges(summaries, limits, perPoint) {
-  const order = [...summaries].sort((a, b) => a.start - b.start);
   const found = [];
-  let a = null;         // the latest earlier drive whose end carries a charge level
-  let skippedM = 0;      // metres covered by basic logs skipped since [a]
-  for (const b of order) {
-    if (a && b.socStart != null) {
-      const points = b.socStart - a.socEnd;
-      if (points >= limits.chargeRise) {
-        const hours = (b.start - a.end) / 3.6e6;
-        const kwh = points * perPoint;
-        const kw = hours > 0 ? kwh / hours : null;
-        // The car came back to the road somewhere else: it was driven there unlogged, and the gap is
-        // then partly driving. The charge is still real and still listed; it simply cannot time itself.
-        const movedM = haversineKm(a.endLat, a.endLon, b.startLat, b.startLon) * 1000;
-        found.push({
-          at: a.end, until: b.start, hours, from: a.socEnd, to: b.socStart, points, kwh, kw,
-          dc: kw != null && kw >= limits.dcKw,
-          moved: movedM > limits.movedM || skippedM > limits.movedM, movedM,
-          lat: a.endLat, lon: a.endLon, fileId: a.fileId,
-        });
-      }
-    }
-    if (b.socEnd != null) { a = b; skippedM = 0; }
-    else if (noSoc(b)) skippedM += b.km * 1000;
-    // socStart known, socEnd not: not a basic log and not a full anchor either, so it may have just
-    // paired as the far end of a charge above, but it cannot carry the chain past itself - forgetting
-    // the anchor here is what stops a later drive reaching back across it to a stale one.
-    else { a = null; skippedM = 0; }
+  for (const { a, b, skippedM } of gaps(summaries)) {
+    const points = b.socStart - a.socEnd;
+    if (points < limits.chargeRise) continue;
+    const hours = (b.start - a.end) / 3.6e6;
+    const kwh = points * perPoint;
+    const kw = hours > 0 ? kwh / hours : null;
+    // The car came back to the road somewhere else: it was driven there unlogged, and the gap is
+    // then partly driving. The charge is still real and still listed; it simply cannot time itself.
+    const movedM = haversineKm(a.endLat, a.endLon, b.startLat, b.startLon) * 1000;
+    found.push({
+      at: a.end, until: b.start, hours, from: a.socEnd, to: b.socStart, points, kwh, kw,
+      dc: kw != null && kw >= limits.dcKw,
+      moved: movedM > limits.movedM || skippedM > limits.movedM, movedM,
+      lat: a.endLat, lon: a.endLon, fileId: a.fileId,
+    });
+  }
+  return found;
+}
+
+const PARKED_FALL = 1;      // points; less is the BMS settling after a drive
+const PARKED_HOURS = 1;     // shorter, and a fall is the same settling and not the car sitting
+const ODO_MOVED_KM = 1.5;   // the odometer's own word that the car was driven unlogged; it reads whole km, so 1 can be a rollover
+
+/**
+ * The charge lost between drives: it fell while the car stood. A gap the car
+ * was driven across without a log is no loss, so the place, any basic log and
+ * the odometer must all say it stayed. A top-up in the gap hides a loss, so
+ * this is the least that went.
+ */
+export function findParkedLosses(summaries, limits, perPoint) {
+  const found = [];
+  for (const { a, b, skippedM } of gaps(summaries)) {
+    const points = a.socEnd - b.socStart, hours = (b.start - a.end) / 3.6e6;
+    if (points < PARKED_FALL || hours < PARKED_HOURS) continue;
+    const movedM = haversineKm(a.endLat, a.endLon, b.startLat, b.startLon) * 1000;
+    const driven = a.odoEnd != null && b.odoStart != null && Math.abs(b.odoStart - a.odoEnd) > ODO_MOVED_KM;
+    if (movedM > limits.movedM || skippedM > limits.movedM || driven) continue;
+    found.push({ at: a.end, until: b.start, hours, from: a.socEnd, to: b.socStart, points, kwh: points * perPoint });
   }
   return found;
 }

@@ -4,7 +4,7 @@ import { haversineKm } from "../stats/num.js";
 import { LIMITS } from "../stats/settings.js";
 import {
   KWH_PER_POINT, CHARGE_BANDS, learnKwhPerPoint, findCharges, curveCharges, chargingCurve,
-  bandUse, chargeMinutes, tripPlan, noSocCount,
+  bandUse, chargeMinutes, tripPlan, noSocCount, findParkedLosses,
 } from "../stats/charges.js";
 
 /** The curve as the page draws it: the charges the limits allow, then the bands off those. */
@@ -504,4 +504,24 @@ test("a trip the pack finishes to the point is planned, not called unplannable",
   near(row.total, 68.4 + 0.3 + 5, 1e-9);
   // 117 and 119 km land on the same edge from the other side of the rounding.
   for (const km of [117, 119]) assert.equal(tripPlan({ ...TRIP, curve: FLAT, km, speeds: [FAST] })[0].stops, 1);
+});
+
+test("charge lost parked: a fall across a long gap where the car stayed, nothing else", () => {
+  const stop = (start, socStart, socEnd, extra = {}) => ({
+    start, end: start + 600e3, socStart, socEnd, km: 5, startLat: 48, startLon: 17, endLat: 48, endLon: 17, ...extra,
+  });
+  const losses = list => findParkedLosses(list, LIMITS, 0.25);
+  const [lost] = losses([stop(START, 80, 70), stop(START + 24 * HOUR, 68, 60)]);
+  assert.equal(lost.points, 2);
+  assert.equal(lost.kwh, 0.5);
+  near(lost.hours, 24 - 1 / 6, 1e-9);
+  // Settling, under a point or within the hour.
+  assert.equal(losses([stop(START, 80, 70), stop(START + 24 * HOUR, 69.5, 60)]).length, 0);
+  assert.equal(losses([stop(START, 80, 70), stop(START + 0.5 * HOUR, 68, 60)]).length, 0);
+  // Driven there and back unlogged: the place says stayed, the odometer does not.
+  assert.equal(losses([stop(START, 80, 70, { odoEnd: 100 }), stop(START + 24 * HOUR, 50, 40, { odoStart: 144 })]).length, 0);
+  // Back on the road somewhere else.
+  assert.equal(losses([stop(START, 80, 70), stop(START + 24 * HOUR, 50, 40, { startLat: 48.5 })]).length, 0);
+  // A rise is a charge, not a loss.
+  assert.equal(losses([stop(START, 80, 70), stop(START + 24 * HOUR, 90, 80)]).length, 0);
 });

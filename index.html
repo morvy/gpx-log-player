@@ -665,6 +665,10 @@ function chartDefs() {
     { id: "power", title: "Power", unit: "kW", series: [
       series("_draw", "Draw", "#fc4c02", { fill: "rgba(252,76,2,.35)", fillTo: 0, dec: 1 }),
       series("_regen", "Regen", "#1f9d55", { fill: "rgba(31,157,85,.35)", fillTo: 0, dec: 1 })] },
+    // Traction is what is left of the pack's power once the aux load is taken out; the three aux parts add up to the load.
+    { id: "aux", title: "Where the power went", unit: "kW", series: [
+      series("_traction", "Traction", "#fc4c02", { dec: 1 }), series("climate_kw", "Climate", "#8250df", { dec: 2 }),
+      series("battery_heat_kw", "Battery heat", "#d62728", { dec: 2 }), series("dcdc_power_kw", "DC/DC (12 V)", "#1f77b4", { dec: 2 })] },
     { id: "speed", title: "Speed", unit: "km/h", series: [series("_speed", "Speed", "#1f77b4", { dec: 0 })] },
     { id: "soc", title: "State of charge", unit: "%", series: [
       series("soc_percent", "Car (BMS)", "#fc4c02", { dec: 2 }), series("soc_weakest_cell_percent", "Weakest cell", "#d62728", { dec: 0 }),
@@ -702,6 +706,7 @@ function seriesData(key) {
   if (key === "_draw") a = power.map(v => ok(v) ? Math.max(0, v) : NaN);
   else if (key === "_regen") a = power.map(v => ok(v) ? Math.min(0, v) : NaN);
   else if (key === "_speed") a = speed;
+  else if (key === "_traction") { if (!cols.aux_power_kw) return null; a = power.map((v, i) => v - cols.aux_power_kw[i]); }
   else if (key === "_cell_min" || key === "_cell_max" || key === "_cell_spread") {
     // Only at the point each cell reading arrived.
     a = new Float64Array(D.n).fill(NaN);

@@ -5,7 +5,7 @@
 // import it instead once module service workers can be relied on.
 
 // Bump this and every older cache goes at the next activation.
-const VERSION = "v4";
+const VERSION = "v5";
 const CACHE = `gpx-log-player-${VERSION}`;
 // Tiles are the map itself, not this site's code, and survive a new version of it.
 const TILES = "gpx-log-player-tiles";
@@ -14,7 +14,7 @@ const TILE_LIMIT = 2000;
 
 // The pages' own code: whatever ships together and must not lag behind the page that imports it.
 const PAGES = ["./", "index.html", "statistics.html", "validate.html", "stats-worker.js",
-  "stats/battery.js", "stats/charges.js", "stats/charging-csv.js", "stats/coach.js", "stats/coach-view.js", "stats/episodes.js", "stats/gpx.js",
+  "stats/battery.js", "stats/charges.js", "stats/charging-csv.js", "stats/coach.js", "stats/coach-view.js", "stats/drive.js", "stats/episodes.js", "stats/gpx.js",
   "stats/habits.js", "stats/num.js", "stats/patterns.js", "stats/periods.js", "stats/settings.js", "stats/store.js",
   "stats/summary.js", "stats/tabs-view.js", "stats/trip-view.js", "stats/trip.js"];
 

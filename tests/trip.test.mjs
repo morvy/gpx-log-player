@@ -259,3 +259,17 @@ test("with nothing else to compare there is no line", () => {
   assert.equal(compareLine(best, [best]), null);
   assert.equal(compareLine(null, [best]), null);
 });
+
+test("the physics line takes aux power from the logs, near the temperature first, and the fixed figure without them", async () => {
+  const { measuredAux, AUX_KW, speedModel } = await import("../stats/trip.js");
+  const cold = { auxKw: 4, seconds: 700, outsideTemp: 0 }, mild = { auxKw: 1, seconds: 700, outsideTemp: 20 };
+  assert.equal(measuredAux([cold, mild], 2), 4);
+  assert.equal(measuredAux([cold, mild], null), 2.5);
+  assert.equal(measuredAux([cold, mild], 40), 2.5, "nothing near: all of them");
+  assert.equal(measuredAux([{ ...cold, seconds: 100 }], 0), null, "too little to go on");
+  const fixed = speedModel([], { temp: 0 }), read = speedModel([cold], { temp: 0 });
+  assert.equal(fixed.auxKw, null);
+  assert.equal(read.auxKw, 4);
+  const v = 100, step = kw => kw / v * 100;
+  assert.ok(Math.abs(read.per100(v) - fixed.per100(v) - step(4 - AUX_KW)) < 1e-9);
+});

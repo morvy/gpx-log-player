@@ -48,3 +48,12 @@ test("the baseline counts only the periods since the first drive", () => {
   assert.equal(baseline(all, "week", weekStart(new Date(2026, 8, 8).getTime())), null, "the first week has nothing before it");
   assert.equal(baseline(all, "month", monthStart(new Date(2026, 8, 15).getTime())), null);
 });
+
+test("climate: a period before the logs carried it is unknown, and a parked drive's kWh still counts", async () => {
+  const { baseline, totals, periodStart } = await import("../stats/periods.js");
+  const WEEK = 7 * 864e5, now = periodStart("week", Date.UTC(2026, 9, 28));
+  const drive = (weeks, climateKwh) => ({ start: now - weeks * WEEK + 864e5, km: 10, moving: 600, energy: 2, climateKwh, per100NoClimate: climateKwh == null ? null : 10 });
+  const list = [drive(4), drive(3), drive(2), drive(1, 5), drive(0, 5)];
+  assert.equal(baseline(list, "week", now).climateKwh, 5);
+  assert.equal(totals([{ km: 0.01, moving: 0, energy: null, climateKwh: 0.4, per100NoClimate: null }]).climateKwh, 0.4);
+});

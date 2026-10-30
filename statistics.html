@@ -233,6 +233,7 @@
 <header>
   <h1>GPX log statistics</h1>
   <label class="file">Add files<input id="fileInput" type="file" accept=".gpx,application/gpx+xml,.csv,text/csv" multiple></label>
+  <button id="driveSync">Sync Drive</button>
   <span class="muted" id="stored"></span>
   <nav><a href="./">Player</a><a href="validate.html">Validate</a></nav>
 </header>
@@ -276,6 +277,11 @@
   <section role="tabpanel" id="panel-battery" aria-labelledby="tab-battery" hidden>
     <div id="batteryStats"></div>
     <div class="pair" id="batteryCharts"></div>
+    <div class="pair">
+      <section class="panel"><h2>Heating the pack</h2><div id="heatList"></div></section>
+      <section class="panel"><h2>Lost while parked</h2><div id="parkedList"></div>
+        <span class="note">From the car's charge figure, so a point either way can be the BMS. A charge in the gap hides a loss.</span></section>
+    </div>
     <details class="more" id="batteryMore"><summary></summary><div class="habits" id="batteryCards"></div></details>
     <details class="more" id="cellList" hidden><summary></summary><div class="cells" id="cellCards"></div></details>
   </section>
@@ -331,15 +337,16 @@ import { LIMITS, CALIBRATION, LEAST_LIMIT, LEAST_CALIBRATION, withLimits, withCa
 import { SPEED_CEILING } from "./stats/coach.js";
 import { SPEED_BANDS } from "./stats/habits.js";
 import { SOC_BANDS, CELL_DECILES } from "./stats/battery.js";
-import { learnKwhPerPoint, findCharges, curveCharges, chargingCurve, noSocCount } from "./stats/charges.js";
-import { AC_BANDS, distancePerWeek, weekdayHours, places, tempScatter } from "./stats/patterns.js";
+import { learnKwhPerPoint, findCharges, findParkedLosses, curveCharges, chargingCurve, noSocCount } from "./stats/charges.js";
+import { CLIMATE_BANDS, distancePerWeek, weekdayHours, places, tempScatter } from "./stats/patterns.js";
+import { FOLDER, requestToken, syncLogs } from "./stats/drive.js";
 import { openDb, getAll, getAllKeys, get, change } from "./stats/store.js";
 import { drawCoach, PULL_RANGE } from "./stats/coach-view.js";
 import { drawTrip } from "./stats/trip-view.js";
 import { speedModel } from "./stats/trip.js";
 import {
   WEEKDAYS, day, dayTime, range, thisPeriod, trendVs, trendClass, statRow, panel, plainKey, valueBars, thin,
-  curveGaps, gapLabel, curveCover, efficiencyEnds, busiestTime,
+  curveGaps, gapLabel, curveCover, efficiencyEnds, busiestTime, heatingHtml, parkedHtml,
 } from "./stats/tabs-view.js";
 
 const $ = id => document.getElementById(id);
@@ -395,9 +402,9 @@ let measuring = false;
 const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 /** [files]: File objects, or { name, text }. */
-async function importFiles(files) {
+async function importFiles(files, { keepErrors = false } = {}) {
   $("importCard").hidden = false;
-  $("errors").replaceChildren();
+  if (!keepErrors) $("errors").replaceChildren();
   const fresh = [];
   const failed = new Set();
   let skipped = 0, addedCharges = 0;
@@ -582,6 +589,8 @@ const TILES = [
   { key: "energy", label: "kWh used", show: v => fmt(v, 1) },
   { key: "per100", label: "kWh/100 km", show: v => fmt(v, 1), better: "lower" },
   { key: "regenShare", label: "regen back", show: v => v == null ? "–" : `${fmt(v * 100, 0)} %`, better: "higher" },
+  { key: "climateKwh", label: "kWh on climate", show: v => fmt(v, 1) },
+  { key: "per100NoClimate", label: "kWh/100 km without climate", show: v => fmt(v, 1), better: "lower" },
 ];
 
 function showSummary(now, before) {
@@ -598,6 +607,7 @@ function showSummary(now, before) {
 /** ▲/▼ against the periods before, coloured where lower or higher is better; changes under 3 % are left out. */
 function trendOf(tile, now, before) {
   const span = document.createElement("span");
+  if (now[tile.key] == null) return null;
   if (tile.better && now.km < 20) {
     span.className = "trend muted";
     span.textContent = "not enough driving";
@@ -1120,13 +1130,13 @@ function showBattery(drives) {
     : kind === "all" ? "the mean of every reading"
     : thin(soh) ? `${sohKnown === 1 ? "first reading" : `${sohKnown} ${kind}s of readings`} — trend after 3 ${kind}s`
     : usual == null ? "nothing in the 4 periods before to compare with"
-    : Math.abs(now.soh - usual) < 0.05 ? "as usual" : `${signed(now.soh - usual, 1)} points against the usual`;
+    : Math.abs(now.soh - usual) < 0.05 ? "as usual" : `${signed(now.soh - usual, 1)} Ah against the usual`;
   // This period's own cells, weakest first - what the "Weakest cell" number and the thin panel below both read from.
   const nowRanked = now.cellMv?.map((mv, k) => ({ cell: k + 1, mv })).sort((a, b) => a.mv - b.mv) ?? [];
   const weakest = nowRanked[0];
   const low = now.cards.find(c => c.key === "lowSoc");
   $("batteryStats").innerHTML = statRow([
-    { label: "State of health", value: now.soh == null ? null : fmt(now.soh, 1), unit: "%", note: sohNote },
+    { label: "State of health", value: now.soh == null ? null : fmt(now.soh, 1), unit: "Ah", note: sohNote },
     // No limit judges a cell, so its dot is green: the figure is there to be watched, not to alarm.
     { label: "Weakest cell", value: weakest ? signed(weakest.mv, 1) : null, unit: "mV", tone: weakest ? "good" : null,
       note: weakest ? `#${weakest.cell}, ${weakest.mv < 0 ? "below" : "not below"} the pack average` : "no cell readings in this period" },
@@ -1139,6 +1149,8 @@ function showBattery(drives) {
   $("batteryMore").querySelector("summary").textContent = now.cards
     .map((c, i) => `${i ? c.label[0].toLowerCase() + c.label.slice(1) : c.label} (${c.figure})`).join(", ");
   $("batteryCards").innerHTML = now.cards.map(card => cardHtml(card, history, 3)).join("");
+  $("heatList").innerHTML = heatingHtml(periodDrives(drives).filter(s => s.heatKwh > 0).reverse());
+  $("parkedList").innerHTML = parkedHtml(chargesIn(findParkedLosses(drives, limits, learnKwhPerPoint(drives).kwh), start).reverse());
   showCells(now.cellVolts, nowRanked.slice(0, 3).map(r => r.cell), now.cellUohm);
 
   chartSizes?.disconnect();
@@ -1203,7 +1215,7 @@ function showBattery(drives) {
   }
 
   if (!thin(soh)) trendChart("State of health", {
-    unit: "%", captions: now.soh == null ? "not in these logs" : `${fmt(now.soh, 1)} % now`,
+    unit: "Ah", captions: now.soh == null ? "not in these logs" : `${fmt(now.soh, 1)} Ah now`,
   }, xs, ["state of health"], [soh]);
   if (!thin(history.map(p => p.aux))) trendChart("12 V at the start of a drive", {
     unit: "V", captions: now.aux == null ? "not in these logs" : `${fmt(now.aux, 2)} V now`,
@@ -1615,9 +1627,9 @@ function showPlaces(found) {
   placeMap.fitBounds(L.latLngBounds(often.map(p => [p.lat, p.lon])).pad(0.3), { maxZoom: 14 });
 }
 
-const AC_LABELS = ["A/C off", "A/C some of the time", "A/C on"];
-// Grey for a log that never wrote the column, then cool to warm as the A/C works harder.
-const AC_COLOURS = ["#1f77b4", "#8250df", "#fc4c02"], NO_AC_COLOUR = "#9a9aa2";
+const CLIMATE_LABELS = ["Climate under 0.5 kW", "Climate 0.5–2 kW", "Climate over 2 kW"];
+// Grey for a log that never wrote the column, then cool to warm as the climate works harder.
+const CLIMATE_COLOURS = ["#1f77b4", "#8250df", "#fc4c02"], NO_CLIMATE_COLOUR = "#9a9aa2";
 
 /**
  * Every drive stored: which weeks it drove, when in the week, where it stops,
@@ -1690,13 +1702,13 @@ function showPatterns(drives) {
     }],
   }), [weeks.map((w, i) => i), weeks.map(w => w.km)]);
 
-  // The key reads warmest first, as the mockup does: A/C on, off, some of the time, then no reading.
+  // The key reads warmest first, as the mockup does: hardest, lightest, between, then no reading.
   const scatter = patternBox("Consumption against the weather", {
     captions: !points.length
       ? `No drive carries both an outside temperature and energy of its own${skipped ? ` - ${plural(skipped, "drive")} left out` : ""}.`
       : plural(points.length, "drive") + (skipped ? `; ${plural(skipped, "drive")} without a temperature or energy of their own` : "") + ".",
-    key: !points.length ? "" : plainKey([2, 0, 1].map(k => ({ colour: AC_COLOURS[k], label: AC_LABELS[k], shape: "dot" }))
-      .concat({ colour: NO_AC_COLOUR, label: "no A/C reading", shape: "dot" }), "x: °C · y: kWh/100 km"),
+    key: !points.length ? "" : plainKey([2, 0, 1].map(k => ({ colour: CLIMATE_COLOURS[k], label: CLIMATE_LABELS[k], shape: "dot" }))
+      .concat({ colour: NO_CLIMATE_COLOUR, label: "no climate reading", shape: "dot" }), "x: °C · y: kWh/100 km"),
   });
   if (points.length) patternChart(scatter, () => ({
     // Nought is the floor only while the drives are above it: a drive that regenerated more than it used
@@ -1704,13 +1716,13 @@ function showPatterns(drives) {
     scales: { x: { time: false }, y: { range: (u, lo, hi) => [Math.min(0, lo * 1.1), hi * 1.1 || 1] } },
     axes: [{ grid: { stroke: "#eee" }, values: (u, vs) => vs.map(v => `${v} °C`) },
       { size: 54, grid: { stroke: "#eee" }, values: (u, vs) => vs.map(v => `${v}`) }],
-    // One series per A/C band and one for the logs without the column: uPlot colours a series, not a point.
-    series: [{ label: "°C", value: (u, v) => v == null ? "–" : `${fmt(v, 1)} °C` }, ...[...AC_LABELS, "no A/C reading"].map((label, k) => ({
-      label, stroke: AC_COLOURS[k] ?? NO_AC_COLOUR, fill: AC_COLOURS[k] ?? NO_AC_COLOUR,
+    // One series per climate band and one for the logs without the column: uPlot colours a series, not a point.
+    series: [{ label: "°C", value: (u, v) => v == null ? "–" : `${fmt(v, 1)} °C` }, ...[...CLIMATE_LABELS, "no climate reading"].map((label, k) => ({
+      label, stroke: CLIMATE_COLOURS[k] ?? NO_CLIMATE_COLOUR, fill: CLIMATE_COLOURS[k] ?? NO_CLIMATE_COLOUR,
       paths: () => null, points: { show: true, size: 8 },
       value: (u, v) => v == null ? "–" : `${fmt(v, 1)} kWh/100 km`,
     }))],
-  }), [temps, ...[...AC_BANDS.keys(), null].map(band => points.map(p => p.ac === band ? p.per100 : null))]);
+  }), [temps, ...[...CLIMATE_BANDS.keys(), null].map(band => points.map(p => p.band === band ? p.per100 : null))]);
 
   showHeatmap(grid);
   showPlaces(found);
@@ -1813,11 +1825,11 @@ function showDrives(list) {
   $("drivesTitle").textContent = kind === "all" ? "All drives" : `All drives ${words}`;
   const rows = [...list].reverse().map(s => `<tr><td><input type="checkbox" data-file="${esc(s.fileId)}" data-start="${esc(s.start)}" data-end="${esc(s.end)}" aria-label="Tick this drive"></td>
       <td>${dayTime(s.start)}</td>
-      <td>${fmt(s.km, 1)}</td><td>${drivingTime(s.moving)}</td><td>${fmt(s.energy, 2)}</td><td>${fmt(s.per100, 1)}</td>
+      <td>${fmt(s.km, 1)}</td><td>${drivingTime(s.moving)}</td><td>${fmt(s.energy, 2)}</td><td>${fmt(s.per100, 1)}</td><td>${fmt(s.climateKwh, 2)}</td>
       <td>${s.socStart == null ? "–" : `${fmt(s.socStart, 0)} → ${fmt(s.socEnd, 0)} %`}</td>
       <td title="${esc(s.file)}"><a href="${esc(playerHref([s.fileId], s.start, s.end))}">Open</a></td>
       <td><button data-forget="${esc(s.id)}">Delete</button></td></tr>`);
-  $("driveRows").innerHTML = `<tr><th></th><th>When</th><th>km</th><th>Driving</th><th>kWh</th><th>kWh/100 km</th><th>Charge</th><th></th><th></th></tr>` + rows.join("");
+  $("driveRows").innerHTML = `<tr><th></th><th>When</th><th>km</th><th>Driving</th><th>kWh</th><th>kWh/100 km</th><th>Climate kWh</th><th>Charge</th><th></th><th></th></tr>` + rows.join("");
   tickedChanged();
 }
 
@@ -1847,6 +1859,34 @@ for (const b of document.querySelectorAll("[data-kind]")) b.addEventListener("cl
 });
 $("prev").addEventListener("click", () => { start = previousStart(kind, start); render(); });
 $("next").addEventListener("click", () => { start = nextStart(kind, start); render(); });
+
+/** One tap: the token first, while the browser still counts it as the tap, then the folder's new logs. */
+$("driveSync").addEventListener("click", async () => {
+  const button = $("driveSync");
+  button.disabled = true;
+  $("importCard").hidden = false;
+  $("errors").replaceChildren();
+  $("importStatus").textContent = "Asking Google for access…";
+  try {
+    const token = await requestToken();
+    await serially(async () => {
+      $("importStatus").textContent = `Looking in ${FOLDER}…`;
+      let drives = 0;
+      const { found, unread } = await syncLogs({
+        token, seen: await get(db, "settings", "driveSeen") ?? {},
+        add: async files => { drives += (await importFiles(files, { keepErrors: true })).fresh.length; },
+        keep: seen => change(db, [{ store: "settings", key: "driveSeen", value: seen }]),
+      });
+      $("importStatus").textContent = !found ? `Nothing new in ${FOLDER}.`
+        : `${plural(found - unread, "new file")} from Drive, ${plural(drives, "drive")} added.` +
+          (unread ? ` ${plural(unread, "file")} could not be fetched and will be tried next time.` : "");
+    });
+  } catch (e) {
+    $("importStatus").textContent = `Drive sync stopped: ${e.message}`;
+  } finally {
+    button.disabled = false;
+  }
+});
 
 $("fileInput").addEventListener("change", e => { const files = [...e.target.files]; e.target.value = ""; serially(() => importFiles(files)); });
 

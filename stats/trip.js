@@ -9,7 +9,8 @@ import { fmt } from "./coach-view.js";
 export const TEMP_NEAR = 5;                       // °C either side of the day being planned for
 export const SPEED_MIN = 40, SPEED_MAX = 160;     // what a typed speed may be
 export const SEARCH_MIN = 60, SEARCH_MAX = 150;   // where the recommendation is looked for
-export const AUX_KW = 0.5;                        // heating and electronics, on top of the road
+export const AUX_KW = 0.5;                        // heating and electronics, until the logs measure them
+const AUX_SECONDS = 600;                          // less driving than this says more about one trip than about the weather
 const MODEL_FROM = 50;       // bands below this are town driving: stop and go, not a cruise speed
 export const ESTIMATE_AFTER = 15;   // km/h past the fastest band the driving still vouches for the line
 const TIE_MINUTES = 1;       // a minute is not worth the energy it costs to win
@@ -40,12 +41,23 @@ function fit(points) {
   return b > 0 && a >= 0 ? { a, b } : null;
 }
 
+/** Aux power the logs measured, in weather like [temp] when there is enough of it, else in all of them; null with too little. */
+export function measuredAux(list, temp) {
+  const weighted = drives => {
+    const read = drives.filter(s => s.auxKw != null);
+    const seconds = read.reduce((sum, s) => sum + s.seconds, 0);
+    return seconds >= AUX_SECONDS ? read.reduce((sum, s) => sum + s.auxKw * s.seconds, 0) / seconds : null;
+  };
+  const near = Number.isFinite(temp) ? weighted(list.filter(s => s.outsideTemp != null && Math.abs(s.outsideTemp - temp) <= TEMP_NEAR)) : null;
+  return near ?? weighted(list);
+}
+
 /** The calibration's car on a flat road, per 100 km: what the planner says when the driving cannot. */
-function physics(calibration) {
+function physics(calibration, auxKw) {
   const c = withCalibration(calibration);
   return v => {
     const u = v / 3.6;
-    const kw = (0.5 * c.airDensity * c.cdaM2 * u ** 3 + c.massKg * 9.80665 * c.rolling * u) / 1000 / c.regenEfficiency + AUX_KW;
+    const kw = (0.5 * c.airDensity * c.cdaM2 * u ** 3 + c.massKg * 9.80665 * c.rolling * u) / 1000 / c.regenEfficiency + auxKw;
     return kw / v * 100;
   };
 }
@@ -69,7 +81,8 @@ export function speedModel(list, { temp = null, calibration } = {}) {
     const got = fit(points);
     if (got) return { per100: v => got.a + got.b * v * v, a: got.a, b: got.b, source: "fit", atTemp, ...span(points) };
   }
-  return { per100: physics(calibration), a: null, b: null, source: "physics", atTemp: warm, ...span(warm ? near : all) };
+  const auxKw = measuredAux(list, temp);
+  return { per100: physics(calibration, auxKw ?? AUX_KW), a: null, b: null, source: "physics", atTemp: warm, auxKw, ...span(warm ? near : all) };
 }
 
 /** A speed the driving does not vouch for: the physics answered, or it is well past the fastest band. */

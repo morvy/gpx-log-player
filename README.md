@@ -44,6 +44,8 @@ the same drive twice - is left out, and the page says which.
   listed with the jumps, marked in blue on the map and the charts.
 - **Every cell against the pack median** is a heat map, one row per cell: a
   weak cell shows as a red stripe, and the weakest of the drive is labelled.
+- **Where the power went** splits the pack's power into traction, climate,
+  battery heat and DC/DC, in logs that carry them.
 - **Every value** under the readout lists everything in the file at the
   cursor, and **Extra chart** plots any one of them.
 
@@ -59,7 +61,19 @@ from OpenStreetMap.
 
 **Open it:** https://morvy.github.io/gpx-log-player/statistics.html
 
-Add GPX drive logs - pick them, or drop files or a whole folder on the page.
+Add GPX drive logs - pick them, drop files or a whole folder on the page, or
+tap **Sync Drive**. With Drive upload on in the dashboard app, that one tap
+brings in every new drive log and charging session from its `Honda e logs`
+folder. The page has no background: a new log arrives on the next tap, and
+Google may flash its window for a moment each time.
+
+The sync runs in the browser. Google's sign-in script loads only on the first
+tap, the access token is kept in memory for that tap's work and never stored,
+and the logs go straight from Drive into this browser. Access is Google's
+`drive.file` scope, so the page sees only what the app uploaded and nothing
+else in the Drive, and it never changes those files. Revoke it any time at
+https://myaccount.google.com/connections.
+
 Each file is read once, in the background, and kept in this browser: next
 time only the new logs need adding. A log is split into drives where the car
 stood still for 5 minutes or charged, so an older log that holds a charge
@@ -103,7 +117,7 @@ weeks or months before it, and a rate - kWh/100 km, regen share, events per
 - **Patterns**: every drive stored, not the period above - distance per
   calendar week, a weekday × hour grid of driving time, the places the car
   keeps coming back to as circles sized by how often, and consumption against
-  outside temperature, one point per drive, coloured by how hard the A/C
+  outside temperature, one point per drive, coloured by how hard the climate
   worked.
 - **Drives**: every drive in the period. **Open** plays it in the player with
   the charts on that whole drive; tick several and **Open ticked in player**
@@ -127,10 +141,13 @@ carry, and says so where it would have stood:
 | Habits' acceleration, braking and speed bands | `ev:speed_kmh`, else `gpxtpx:speed` | the card says there is nothing to measure |
 | Battery's cells and spread | `ev:cells_v` | "no cell readings in these periods" |
 | Empty-pack driving, charge jumps | `ev:soc_percent` | nothing is flagged |
-| State of health, 12 V | `ev:soh_percent`, `ev:aux_12v_v` | "not in these logs" |
+| State of health, 12 V | `ev:soh_percent` (in Ah, despite the name), `ev:aux_12v_v` | "not in these logs" |
 | Charging, the curve, the trip calculator | `ev:soc_percent` on the drives either side of a gap | no charge is found; the calculator does not appear |
 | Consumption against the weather | `ev:outside_temp_c` | the drive is left out, and the caption counts how many were |
-| The A/C colouring on that chart | `ev:aircon` | every point is grey - **no log this app writes carries it yet** |
+| Climate kWh, kWh/100 km without climate, the colours on that chart | `ev:climate_kw` | the figure is left out; the point is grey |
+| Heating the pack | `ev:battery_heat_kw` | no drive is listed |
+| Lost while parked | `ev:soc_percent` on the drives either side of a gap; `ev:odometer_km` tells a parked car from one driven unlogged | no loss is found |
+| The trip calculator's aux power, when your driving cannot fit a line | `ev:aux_power_kw` | a fixed 0.5 kW |
 
 The curve only knows the charge bands its DC charges actually went through. On
 this driver's logs that is two charges covering 0-70 %, so the curve reads
@@ -217,7 +234,8 @@ Everything else is optional. `ele` gives altitude and climb, `gpxtpx:speed`
 | `ev:cell_voltage_min_v`, `cell_voltage_max_v` | V | Cells chart, the car's own spread. |
 | `ev:cells_v` | V, space separated, cell 1 first | Cells at the cursor, cell spread, the cell heat map, the weakest cell. |
 | `ev:battery_temp_c`, `outside_temp_c`, `module_1_temp_c` … `module_6_temp_c` | °C | Temperatures chart. |
-| `ev:soh_percent`, `odometer_km`, `range_km`, `aux_12v_v`, `pressure_altitude_m` | %, km, km, V, m | Every value, Extra chart. |
+| `ev:aux_power_kw`, `dcdc_power_kw`, `battery_heat_kw`, `climate_kw` | kW; aux = DC/DC + battery heat + climate | Where the power went; climate and battery heat figures in the statistics. |
+| `ev:soh_percent`, `odometer_km`, `range_km`, `aux_12v_v`, `pressure_altitude_m` | Ah (a new pack holds 100), km, km, V, m | Every value, Extra chart. |
 | any other `ev:` name | a number | Every value, Extra chart. |
 | `<name>`, `<desc>`, `<type>` on a `trkpt` | text; `type` is `soc`, `cell`, `link` or `resumed`, space separated | An event from the car, in a file with an `ev:field` key. `resumed` also marks where the energy counters started again. |
 

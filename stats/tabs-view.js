@@ -24,6 +24,15 @@ export const dayTime = ms => {
   return `${day(ms)} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 };
 
+/** The Battery tab's two lists: what heating the pack cost, and what went while parked. Empty lists say so. */
+export const heatingHtml = drives => !drives.length ? `<p class="muted">The car did not heat the pack on a logged drive.</p>` :
+  `<div class="scroll"><table><tr><th>When</th><th>kWh</th><th>Heating</th><th>Pack at start</th><th>Outside</th></tr>${drives.map(s =>
+    `<tr><td>${dayTime(s.start)}</td><td>${fmt(s.heatKwh, 2)}</td><td>${fmt(s.heatSeconds / 60, 0)} min</td><td>${s.packTempStart == null ? "–" : `${minus(fmt(s.packTempStart, 1))} °C`}</td><td>${s.outsideTemp == null ? "–" : `${minus(fmt(s.outsideTemp, 0))} °C`}</td></tr>`).join("")}</table></div>`;
+
+export const parkedHtml = losses => !losses.length ? `<p class="muted">No charge lost while parked.</p>` :
+  `<div class="scroll"><table><tr><th>Parked</th><th>For</th><th>Charge</th><th>Lost</th></tr>${losses.map(l =>
+    `<tr><td>${dayTime(l.at)}</td><td>${fmt(l.hours, 1)} h</td><td>${fmt(l.from, 1)} → ${fmt(l.to, 1)} %</td><td>${fmt(l.points, 1)} points, about ${fmt(l.kwh, 2)} kWh</td></tr>`).join("")}</table></div>`;
+
 /** "7.5–30.9", or "−5 to 10" once an end is below nought, where a dash between them would read as a minus. */
 export const range = (lo, hi, decimals) =>
   `${minus(fmt(lo, decimals))}${lo < 0 || hi < 0 ? " to " : "–"}${minus(fmt(hi, decimals))}`;

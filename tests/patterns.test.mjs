@@ -3,12 +3,12 @@ import assert from "node:assert/strict";
 import { haversineKm } from "../stats/num.js";
 import { weekStart } from "../stats/periods.js";
 import { LIMITS } from "../stats/settings.js";
-import { AC_BANDS, acBandOf, distancePerWeek, weekdayHours, places, tempScatter } from "../stats/patterns.js";
+import { CLIMATE_BANDS, climateBandOf, distancePerWeek, weekdayHours, places, tempScatter } from "../stats/patterns.js";
 
 /** A stored summary with only the fields the patterns read. Times are local: weeks and hours are the driver's. */
 const drive = (o = {}) => ({
   id: "f:0", fileId: "f", start: new Date(2026, 8, 14, 9).getTime(), end: new Date(2026, 8, 14, 10).getTime(),
-  km: 10, per100: 15, outsideTemp: 18, acShare: 0.5, hourSeconds: new Array(24).fill(0),
+  km: 10, per100: 15, outsideTemp: 18, climateKw: 1, hourSeconds: new Array(24).fill(0),
   startLat: 48.1, startLon: 17.1, endLat: 48.2, endLon: 17.2, ...o,
 });
 
@@ -236,22 +236,19 @@ test("a drive with no temperature or no consumption cannot be placed on the scat
   assert.equal(tempScatter([drive({ per100: undefined })]).skipped, 1);
 });
 
-test("a log with no A/C column keeps its point and loses only its colour", () => {
-  const { points, noAc } = tempScatter([
-    drive({ outsideTemp: 20, per100: 15, acShare: null }),
-    drive({ outsideTemp: 22, per100: 17, acShare: 0.8 }),
+test("a log with no climate column keeps its point and loses only its colour", () => {
+  const { points, noClimate } = tempScatter([
+    drive({ outsideTemp: 20, per100: 15, climateKw: null }),
+    drive({ outsideTemp: 22, per100: 17, climateKw: 4 }),
   ]);
   assert.equal(points.length, 2);
-  assert.equal(noAc, 1);
-  assert.equal(points[0].acShare, null);
-  assert.equal(points[0].ac, null, "no colour to give it");
-  assert.equal(points[1].ac, AC_BANDS.length - 1);
-  // A newer log whose A/C was simply never on is the case the colours exist for: nought is a reading, and
-  // it has to reach the chart as the "off" band, not fall in with the logs that carry no column at all.
-  const never = tempScatter([drive({ outsideTemp: 19, per100: 14, acShare: 0 })]);
-  assert.equal(never.noAc, 0);
-  assert.equal(never.points[0].acShare, 0);
-  assert.equal(never.points[0].ac, 0, "A/C off, not grey");
+  assert.equal(noClimate, 1);
+  assert.equal(points[0].band, null, "no colour to give it");
+  assert.equal(points[1].band, CLIMATE_BANDS.length - 1);
+  // Nought is a reading: it has to reach the chart as the lightest band, not fall in with the logs without the column.
+  const never = tempScatter([drive({ outsideTemp: 19, per100: 14, climateKw: 0 })]);
+  assert.equal(never.noClimate, 0);
+  assert.equal(never.points[0].band, 0);
 });
 
 test("the scatter is drawn coldest first, which is what uPlot needs of its x", () => {
@@ -259,15 +256,15 @@ test("the scatter is drawn coldest first, which is what uPlot needs of its x", (
   assert.deepEqual(points.map(p => p.temp), [-3, 9, 22]);
 });
 
-test("the A/C bands are told apart at the share they are named for", () => {
-  assert.deepEqual(AC_BANDS, [0, 0.25, 0.75]);
-  assert.equal(acBandOf(0), 0);
-  assert.equal(acBandOf(0.2499), 0);
-  assert.equal(acBandOf(0.25), 1, "a quarter of the drive is already some of the time");
-  assert.equal(acBandOf(0.7499), 1);
-  assert.equal(acBandOf(0.75), 2, "three quarters is on");
-  assert.equal(acBandOf(1), 2);
-  assert.equal(acBandOf(null), null);
+test("the climate bands are told apart at the kW they are named for", () => {
+  assert.deepEqual(CLIMATE_BANDS, [0, 0.5, 2]);
+  assert.equal(climateBandOf(0), 0);
+  assert.equal(climateBandOf(0.4999), 0);
+  assert.equal(climateBandOf(0.5), 1);
+  assert.equal(climateBandOf(1.9999), 1);
+  assert.equal(climateBandOf(2), 2);
+  assert.equal(climateBandOf(6), 2);
+  assert.equal(climateBandOf(null), null);
   // A summary from before the column was read has no field at all, which is no reading either - not "off".
-  assert.equal(acBandOf(undefined), null);
+  assert.equal(climateBandOf(undefined), null);
 });
