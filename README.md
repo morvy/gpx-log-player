@@ -16,6 +16,10 @@ plays; the more of the values below a file carries, the more the player shows.
 2. Open the player and tap **Open GPX**, or drop the file on the page. On
    Android the file picker lists Google Drive.
 
+**Stored drives** lists what the [statistics page](#statistics) keeps in this
+browser, newest first: tick one or several and **Open ticked**, with no file to
+find and nothing to sync twice, since both pages read the same store.
+
 **Several logs at once**: select or drop more than one file. They play one
 after another as a single trip, in time order: the map draws each drive
 without a line between them, distance and energy carry on across, charts

@@ -79,6 +79,14 @@
   #drop { position: fixed; inset: 0; background: rgba(252, 76, 2, .12); border: 3px dashed var(--accent);
     display: none; align-items: center; justify-content: center; font-size: 22px; z-index: 2000; }
   .hint { color: var(--muted); font-size: 12px; }
+  #picker { background: var(--card); color: var(--text); border: 1px solid var(--line); border-radius: 8px;
+    width: min(460px, calc(100vw - 32px)); padding: 16px; }
+  #picker h2 { font-size: 16px; margin: 0 0 8px; }
+  #pickerList { max-height: 60vh; overflow-y: auto; }
+  #pickerList label { display: flex; gap: 8px; align-items: center; padding: 8px 2px; border-bottom: 1px solid var(--line); }
+  #pickerList label .hint { margin-left: auto; white-space: nowrap; }
+  #picker form { display: flex; justify-content: flex-end; gap: 8px; margin-top: 12px; }
+  #picker button:disabled { opacity: .5; cursor: default; }
   @media (max-width: 900px) {
     #top { grid-template-columns: minmax(0, 1fr); height: auto; }
     #map { min-height: 45vh; }
@@ -90,6 +98,7 @@
 <header>
   <h1>GPX log player</h1>
   <label class="file">Open GPX<input id="fileInput" type="file" accept=".gpx,application/gpx+xml" multiple></label>
+  <button id="pickStored" hidden>Stored drives</button>
   <span class="name" id="name"></span>
   <nav id="validateLink" hidden><a href="validate.html">Validate a file</a> · <a href="statistics.html">Statistics</a></nav>
 </header>
@@ -134,6 +143,15 @@
   <div id="charts"></div>
 </div>
 <div id="drop">Drop the GPX files</div>
+
+<dialog id="picker" aria-labelledby="pickerTitle">
+  <h2 id="pickerTitle">Stored drives</h2>
+  <div id="pickerList"></div>
+  <form method="dialog">
+    <button>Close</button>
+    <button type="button" class="primary" id="openPicked" disabled>Open ticked</button>
+  </form>
+</dialog>
 
 <script>
 "use strict";
@@ -1153,7 +1171,7 @@ $("whole").addEventListener("click", () => { fitOnRange = true; const xs = chart
 $("play").addEventListener("click", togglePlay);
 $("scrub").addEventListener("input", e => moveTo(+e.target.value, "scrub"));
 document.addEventListener("keydown", e => {
-  if (!D || e.target.tagName === "SELECT" || e.target.tagName === "INPUT" && e.target.type !== "range") return;
+  if (!D || $("picker").open || e.target.tagName === "SELECT" || e.target.tagName === "INPUT" && e.target.type !== "range") return;
   if (e.code === "Space") { e.preventDefault(); togglePlay(); }
   else if (e.code === "ArrowRight") moveTo(cursorIdx + (e.shiftKey ? 30 : 1), "key");
   else if (e.code === "ArrowLeft") moveTo(cursorIdx - (e.shiftKey ? 30 : 1), "key");
@@ -1162,15 +1180,18 @@ document.addEventListener("keydown", e => {
 ["dragleave", "drop"].forEach(ev => document.addEventListener(ev, e => { e.preventDefault(); if (ev === "drop" || e.target === $("drop")) $("drop").style.display = "none"; }));
 document.addEventListener("drop", e => readAll(e.dataTransfer.files));
 
+const NOTHING_STORED = "No drives are stored in this browser - add them on the statistics page.";
+const openLogs = () => new Promise((resolve, reject) => {
+  const req = indexedDB.open("gpx-log-player");
+  // No statistics in this browser yet: do not leave an empty database behind.
+  req.onupgradeneeded = () => req.transaction.abort();
+  req.onsuccess = () => resolve(req.result);
+  req.onerror = () => reject(new Error(NOTHING_STORED));
+});
+
 // Opened from statistics.html: drives it keeps in this browser, by id, optionally at a moment.
 async function openStored(ids, at, from, to) {
-  const db = await new Promise((resolve, reject) => {
-    const req = indexedDB.open("gpx-log-player");
-    // No statistics in this browser yet: do not leave an empty database behind.
-    req.onupgradeneeded = () => req.transaction.abort();
-    req.onsuccess = () => resolve(req.result);
-    req.onerror = () => reject(new Error("No drives are stored in this browser - add them on the statistics page."));
-  });
+  const db = await openLogs();
   let files;
   try {
     files = await Promise.all(ids.map(id => new Promise((resolve, reject) => {
@@ -1198,6 +1219,47 @@ async function openStored(ids, at, from, to) {
   requestAnimationFrame(place);
   setTimeout(place, 100);
 }
+
+// The picker: what statistics.html already synced, so no screen needs its own copy. Only offered where
+// stats/ sits beside this page, so the import cannot leave the page depending on a file it lacks.
+async function showPicker() {
+  const list = $("pickerList");
+  list.textContent = "Reading…";
+  $("openPicked").disabled = true;
+  $("picker").showModal();
+  try {
+    const { visible, readable } = await import("./stats/summary.js");
+    const db = await openLogs();
+    let all = [];
+    try {
+      // A database opened elsewhere without a version has no stores yet.
+      if (db.objectStoreNames.contains("summaries")) all = await new Promise((resolve, reject) => {
+        const req = db.transaction("summaries").objectStore("summaries").getAll();
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+      });
+    } finally {
+      db.close();
+    }
+    const drives = visible(all.filter(readable)).sort((a, b) => b.start - a.start);
+    if (!drives.length) throw new Error(NOTHING_STORED);
+    list.innerHTML = drives.map(s => `<label>
+      <input type="checkbox" data-file="${esc(s.fileId)}" data-start="${esc(s.start)}" data-end="${esc(s.end)}">
+      ${stamp(s.start)} <span class="hint">${fmt(s.km, 1)} km · ${duration(s.moving)}</span></label>`).join("");
+  } catch (e) {
+    list.textContent = e.message;
+  }
+}
+$("pickStored").addEventListener("click", showPicker);
+$("pickerList").addEventListener("change", () => { $("openPicked").disabled = !$("pickerList").querySelector("input:checked"); });
+$("openPicked").addEventListener("click", () => {
+  const ticked = [...$("pickerList").querySelectorAll("input:checked")];
+  const from = Math.min(...ticked.map(i => Number(i.dataset.start)));
+  const to = Math.max(...ticked.map(i => Number(i.dataset.end)));
+  $("picker").close();
+  openStored([...new Set(ticked.map(i => i.dataset.file))], from, from, to).catch(e => alert(e.message));
+});
+
 const stored = new URLSearchParams(location.search);
 const number = name => Number(stored.get(name)) || 0;
 if (stored.get("drive")) openStored(stored.get("drive").split(","), number("at"), number("from"), number("to")).catch(e => alert(e.message));
@@ -1210,6 +1272,7 @@ if (wanted) fetch(wanted).then(r => r.ok ? r.text() : Promise.reject(new Error(`
 // The validator sits next to this page where it is published; a server offering the player alone has none.
 fetch("validate.html", { method: "HEAD" }).then(r => {
   $("validateLink").hidden = !r.ok;
+  $("pickStored").hidden = !r.ok;
   // Published whole, so sw.js is beside this page too, and offline then works once visited. Served
   // alone by gpx_player.py, or opened from a file, there is nothing to register and nothing here
   // needs one: this page stays one file that loads nothing of its own.
