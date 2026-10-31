@@ -116,7 +116,7 @@ export function chargeJumps(log) {
     if (first < 0) { first = i; continue; }
     if (soc[i] === soc[first]) continue;
     const delta = soc[i] - soc[first], seconds = (t[i] - t[first]) / 1000;
-    const flow = counter ? counter[i] - counter[first] : power ? (f => f.out - f.back)(integrate(power, t, first, i)) : NaN;
+    const flow = counter && ok(counter[i]) && ok(counter[first]) ? counter[i] - counter[first] : power ? (f => f.out - f.back)(integrate(power, t, first, i)) : NaN;
     const explained = ok(flow) ? -flow * POINTS_PER_KWH : 0;
     if (Math.abs(delta - explained) >= SOC_STEP && seconds <= JUMP_MS / 1000) {
       found.push({

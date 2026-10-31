@@ -3,6 +3,12 @@
 
 export const ok = v => v != null && !Number.isNaN(v);
 
+/** A file's name in the store: the same bytes are the same file, however they got here. */
+export async function sha256(text) {
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  return Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, "0")).join("");
+}
+
 /**
  * A column that holds a reading. splitDrives() slices every column into every
  * drive, so a column can exist yet be all NaN here - that is absent, the same

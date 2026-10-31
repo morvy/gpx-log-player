@@ -8,6 +8,21 @@ export function isChargingCsv(text) {
   return String(text).replace(/^﻿/, "").split(/\r?\n/, 32).some(line => line.trim() === HEADER);
 }
 
+const sessionKey = c => `${c.vehicle}\n${c.sessionId}`;
+export const sameSession = (a, b) => sessionKey(a) === sessionKey(b);
+/** Above 0 when [a] is the copy of a session to keep over [b]: a finished one, then more points. */
+export const fullerSession = (a, b) => Boolean(a.endedAt) - Boolean(b.endedAt) || a.points.length - b.points.length;
+
+/** The stored records that are not their session's fullest copy. */
+export function sessionCopies(logged) {
+  const best = new Map();
+  for (const c of logged) {
+    const held = best.get(sessionKey(c));
+    if (!held || fullerSession(c, held) > 0) best.set(sessionKey(c), c);
+  }
+  return logged.filter(c => best.get(sessionKey(c)) !== c);
+}
+
 export function parseChargingCsv(text) {
   const lines = String(text).replace(/^﻿/, "").split(/\r?\n/).map(line => line.trim()).filter(Boolean);
   const header = lines.indexOf(HEADER);

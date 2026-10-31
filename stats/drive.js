@@ -78,8 +78,9 @@ const read = async (token, file) => ({ name: file.name, text: await (await call(
  * Brings the folder's new logs in. [add] takes { name, text } files; [keep]
  * stores [seen] after each chunk, so a sync cut short carries on where it
  * stopped. A file that was read counts as seen whatever [add] made of it - a
- * log of standing still will not read better next week. One that could not be
- * fetched does not: a token running out mid-sync leaves the rest for next time.
+ * log of standing still will not read better next week - unless [add] hands it
+ * back as not stored: a full disk is no verdict on the file. One that could not
+ * be fetched waits too: a token running out mid-sync leaves the rest for next time.
  */
 export async function syncLogs({ token, seen, add, keep, progress = () => {} }) {
   const files = unseen(await listLogs(token), seen);
@@ -88,9 +89,9 @@ export async function syncLogs({ token, seen, add, keep, progress = () => {} }) 
     progress(at, files.length);
     const chunk = files.slice(at, at + CHUNK);
     const got = await Promise.allSettled(chunk.map(f => read(token, f)));
-    unread += got.filter(r => r.status === "rejected").length;
-    await add(got.filter(r => r.status === "fulfilled").map(r => r.value));
-    got.forEach((r, k) => { if (r.status === "fulfilled") seen[chunk[k].id] = chunk[k].md5Checksum; });
+    const retry = new Set(await add(got.filter(r => r.status === "fulfilled").map(r => r.value)));
+    unread += got.filter(r => r.status === "rejected").length + retry.size;
+    got.forEach((r, k) => { if (r.status === "fulfilled" && !retry.has(r.value)) seen[chunk[k].id] = chunk[k].md5Checksum; });
     await keep(seen);
   }
   return { found: files.length, unread };

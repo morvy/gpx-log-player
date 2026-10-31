@@ -17,8 +17,9 @@ plays; the more of the values below a file carries, the more the player shows.
    Android the file picker lists Google Drive.
 
 **Stored drives** lists what the [statistics page](#statistics) keeps in this
-browser, newest first: tick one or several and **Open ticked**, with no file to
-find and nothing to sync twice, since both pages read the same store.
+browser, newest first: tick one or several and **Open ticked** to play just
+those drives, with no file to find and nothing to sync twice, since both pages
+read the same store.
 
 **Several logs at once**: select or drop more than one file. They play one
 after another as a single trip, in time order: the map draws each drive
@@ -125,7 +126,7 @@ weeks or months before it, and a rate - kWh/100 km, regen share, events per
   worked.
 - **Drives**: every drive in the period. **Open** plays it in the player with
   the charts on that whole drive; tick several and **Open ticked in player**
-  plays them as one trip, spanning them all. **Delete** removes a drive from
+  plays just those drives as one trip, spanning them all. **Delete** removes a drive from
   this browser. **Show the moments** links open the charts on two minutes
   either side of the moment instead - a braking is worth looking at closely,
   a drive is worth seeing whole.

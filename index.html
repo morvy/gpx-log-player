@@ -5,10 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>GPX log player</title>
 <link rel="icon" href="data:,">
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uplot@1.6.32/dist/uPlot.min.css">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/uplot@1.6.32/dist/uPlot.iife.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" integrity="sha384-c6Rcwz4e4CITMbu/NBmnNS8yN2sC3cUElMEMfP3vqqKFp7GOYaaBBCqmaWBjmkjb" crossorigin="anonymous">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uplot@1.6.32/dist/uPlot.min.css" integrity="sha384-IfV0B7MIOYuO95kO9G5ySKPz/85zqFNOAs8iy4tkK5zd9izhJAB8b7lHrwYqqmYE" crossorigin="anonymous">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js" integrity="sha384-NElt3Op+9NBMCYaef5HxeJmU4Xeard/Lku8ek6hoPTvYkQPh3zLIrJP7KiRocsxO" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/uplot@1.6.32/dist/uPlot.iife.min.js" integrity="sha384-Gx3t0zdBAuQOuvvmaLZj7HKEiSgWTAs+VdtNY7wt19QDPTDQjFIwAuXDj0zeN00c" crossorigin="anonymous"></script>
 <style>
   :root {
     --bg: #f5f5f3; --card: #fff; --text: #242428; --muted: #6d6d78; --line: #e3e3e0;
@@ -1097,11 +1097,26 @@ function frame(now) {
 
 // ---------- loading ----------
 
-/** [files] as {text, name}: one log or several. */
+/** The points of [log] between two times as a log of its own: a ticked drive without the rest of its file. */
+function piece(log, [start, end]) {
+  const a = log.t.findIndex(v => v >= start), b = log.t.findLastIndex(v => v <= end);
+  if (a < 0 || b <= a) return null;
+  const cols = {};
+  for (const id in log.cols) cols[id] = log.cols[id].slice(a, b + 1);
+  return { ...log, n: b - a + 1, cols, lat: log.lat.slice(a, b + 1), lon: log.lon.slice(a, b + 1), t: log.t.slice(a, b + 1),
+    cells: log.cells.slice(a, b + 1), carEvents: log.carEvents.filter(e => e.i >= a && e.i <= b).map(e => ({ ...e, i: e.i - a })) };
+}
+
+/** [files] as {text, name, spans}: one log or several, each whole or cut down to its [start, end] spans. */
 function load(files) {
   const logs = [], failed = [];
   for (const f of files) {
-    try { logs.push({ ...parseGpx(f.text), file: f.name }); } catch (e) { failed.push(`${f.name}: ${e.message}`); }
+    try {
+      const log = { ...parseGpx(f.text), file: f.name };
+      const pieces = f.spans ? f.spans.map(span => piece(log, span)).filter(Boolean) : [log];
+      if (!pieces.length) throw new Error("The ticked drive is not in this file.");
+      logs.push(...pieces);
+    } catch (e) { failed.push(`${f.name}: ${e.message}`); }
   }
   if (!logs.length) { alert(failed.join("\n")); return; }
   D = merge(logs);
@@ -1190,7 +1205,8 @@ const openLogs = () => new Promise((resolve, reject) => {
 });
 
 // Opened from statistics.html: drives it keeps in this browser, by id, optionally at a moment.
-async function openStored(ids, at, from, to) {
+// [spans], as [index in ids, start, end], cuts the files down to the drives that were ticked.
+async function openStored(ids, at, from, to, spans) {
   const db = await openLogs();
   let files;
   try {
@@ -1202,7 +1218,7 @@ async function openStored(ids, at, from, to) {
   } finally {
     db.close();
   }
-  load(files.map(f => ({ text: f.text, name: f.name })));
+  load(files.map((f, k) => ({ text: f.text, name: f.name, spans: spans?.filter(s => s[0] === k).map(s => s.slice(1)) })));
   if (!at || !D) return;
   // A whole drive where the statistics sent its span, and two minutes either side of a moment where they
   // did not: opening a drive is to look at the drive, opening a braking is to look at the braking.
@@ -1257,12 +1273,15 @@ $("openPicked").addEventListener("click", () => {
   const from = Math.min(...ticked.map(i => Number(i.dataset.start)));
   const to = Math.max(...ticked.map(i => Number(i.dataset.end)));
   $("picker").close();
-  openStored([...new Set(ticked.map(i => i.dataset.file))], from, from, to).catch(e => alert(e.message));
+  const ids = [...new Set(ticked.map(i => i.dataset.file))];
+  const spans = ticked.map(i => [ids.indexOf(i.dataset.file), Number(i.dataset.start), Number(i.dataset.end)]);
+  openStored(ids, from, from, to, spans).catch(e => alert(e.message));
 });
 
 const stored = new URLSearchParams(location.search);
 const number = name => Number(stored.get(name)) || 0;
-if (stored.get("drive")) openStored(stored.get("drive").split(","), number("at"), number("from"), number("to")).catch(e => alert(e.message));
+const spans = stored.get("spans")?.split(",").map(s => s.split(/[:-]/).map(Number));
+if (stored.get("drive")) openStored(stored.get("drive").split(","), number("at"), number("from"), number("to"), spans).catch(e => alert(e.message));
 
 // Opened with ?file=<url>: fetch that log from the server offering this page.
 const wanted = new URLSearchParams(location.search).get("file");

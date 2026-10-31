@@ -266,3 +266,11 @@ test("a band's energy carries the distance it was measured over, not the band's 
   near(bands[4].energyKm, 100 * 30 / 3600, 1e-4);
   near(bands[4].energy, 10 * 30 / 3600, 1e-9);
 });
+
+test("a drive whose first speed is missing loses only that step, not the ten seconds after it", () => {
+  const points = trace(() => 50, 60);
+  points[0].speedMs = null;
+  points[0].ev.speed_kmh = null;
+  const seconds = speedBands(logOf(points)).reduce((sum, b) => sum + b.seconds, 0);
+  assert.equal(seconds, 59);
+});

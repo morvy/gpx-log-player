@@ -7,10 +7,10 @@
 <link rel="icon" href="icons/icon.svg">
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#fc4c02">
-<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uplot@1.6.32/dist/uPlot.min.css">
-<script src="https://cdn.jsdelivr.net/npm/uplot@1.6.32/dist/uPlot.iife.min.js"></script>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
-<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/uplot@1.6.32/dist/uPlot.min.css" integrity="sha384-IfV0B7MIOYuO95kO9G5ySKPz/85zqFNOAs8iy4tkK5zd9izhJAB8b7lHrwYqqmYE" crossorigin="anonymous">
+<script src="https://cdn.jsdelivr.net/npm/uplot@1.6.32/dist/uPlot.iife.min.js" integrity="sha384-Gx3t0zdBAuQOuvvmaLZj7HKEiSgWTAs+VdtNY7wt19QDPTDQjFIwAuXDj0zeN00c" crossorigin="anonymous"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" integrity="sha384-c6Rcwz4e4CITMbu/NBmnNS8yN2sC3cUElMEMfP3vqqKFp7GOYaaBBCqmaWBjmkjb" crossorigin="anonymous">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js" integrity="sha384-NElt3Op+9NBMCYaef5HxeJmU4Xeard/Lku8ek6hoPTvYkQPh3zLIrJP7KiRocsxO" crossorigin="anonymous"></script>
 <style>
   :root { --bg: #f5f5f3; --card: #fff; --text: #242428; --muted: #6d6d78; --line: #e3e3e0; --accent: #fc4c02; --good: #1f9d55; --bad: #c62828;
     --neutral: #9aa0a6; --accent-soft: #fff1ea; }
@@ -331,7 +331,8 @@
 
 <script type="module">
 import { SUMMARY_VERSION, visible } from "./stats/summary.js";
-import { isChargingCsv, parseChargingCsv } from "./stats/charging-csv.js";
+import { sessionCopies } from "./stats/charging-csv.js";
+import { importLogs } from "./stats/importing.js";
 import { periodStart, nextStart, previousStart, inPeriod, totals, baseline } from "./stats/periods.js";
 import { LIMITS, CALIBRATION, LEAST_LIMIT, LEAST_CALIBRATION, withLimits, withCalibration, calibrationKey } from "./stats/settings.js";
 import { SPEED_CEILING } from "./stats/coach.js";
@@ -387,7 +388,7 @@ const summarizeFile = (name, text) => (workerQueue = workerQueue.then(() => new 
     e.preventDefault();
     worker.terminate();
     worker = new Worker("stats-worker.js", { type: "module" });
-    resolve({ name, error: e.message || "The statistics worker failed." });
+    resolve({ name, error: e.message || "The statistics worker failed.", crashed: true });
   };
   worker.postMessage({ name, text, calibration });
 })));
@@ -405,40 +406,10 @@ const plural = (n, word) => `${n} ${word}${n === 1 ? "" : "s"}`;
 async function importFiles(files, { keepErrors = false } = {}) {
   $("importCard").hidden = false;
   if (!keepErrors) $("errors").replaceChildren();
-  const fresh = [];
-  const failed = new Set();
-  let skipped = 0, addedCharges = 0;
-  for (const [k, f] of files.entries()) {
-    $("importStatus").textContent = `Reading ${k + 1} of ${files.length}: ${f.name}`;
-    try {
-      const text = typeof f.text === "function" ? await f.text() : f.text;
-      if (isChargingCsv(text)) {
-        const fileId = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text)).then(bytes => [...new Uint8Array(bytes)].map(b => b.toString(16).padStart(2, "0")).join(""));
-        const existing = await get(db, "charges", fileId);
-        if (existing) { skipped++; continue; }
-        const session = parseChargingCsv(text);
-        const value = { ...session, fileId, file: f.name };
-        await change(db, [{ store: "charges", key: fileId, value }]);
-        logged.push(value);
-        addedCharges++;
-        continue;
-      }
-      if (/\.csv$/i.test(f.name)) { failed.add(k); addError(f.name, "CSV is not a supported charging session file."); continue; }
-      const result = await summarizeFile(f.name, text);
-      if (result.error) { failed.add(k); addError(f.name, result.error); continue; }
-      if (summaries.some(o => o.fileId === result.fileId)) { skipped++; continue; }
-      // Every copy of a drive is stored; visible() counts only the fullest one.
-      await change(db, [
-        { store: "files", key: result.fileId, value: { name: f.name, text } },
-        ...result.summaries.map(s => ({ store: "summaries", key: s.id, value: s })),
-      ]);
-      summaries.push(...result.summaries);
-      fresh.push(...result.summaries.map(s => s.id));
-    } catch (e) {
-      failed.add(k);
-      addError(f.name, e.message);
-    }
-  }
+  const { fresh, retry, skipped, addedCharges } = await importLogs(files, {
+    summaries, logged, summarize: summarizeFile, change: ops => change(db, ops), refused: addError,
+    progress: (k, f) => { $("importStatus").textContent = `Reading ${k + 1} of ${files.length}: ${f.name}`; },
+  });
   const shown = new Set(visible(summaries).map(s => s.id));
   const added = fresh.filter(id => shown.has(id)).length, copies = fresh.length - added;
   $("importStatus").textContent = `Added ${plural(added, "drive")}` +
@@ -448,7 +419,7 @@ async function importFiles(files, { keepErrors = false } = {}) {
   // Ask the browser not to clear the history when space runs low.
   if (fresh.length || addedCharges) navigator.storage?.persist?.();
   showLatest();
-  return { fresh, failed };
+  return { fresh, retry };
 }
 
 /**
@@ -462,9 +433,9 @@ async function importInbox() {
   // between these two calls would break that, and a share landing in the gap would be deleted unread.
   const [keys, files] = await Promise.all([getAllKeys(db, "inbox"), getAll(db, "inbox")]);
   if (!files.length) return;
-  const { fresh, failed } = await importFiles(files);
-  // Drop only successful entries. Failed files remain in the inbox for another attempt.
-  await change(db, keys.filter((_, index) => !failed.has(index)).map(key => ({ store: "inbox", key })));
+  const { fresh, retry } = await importFiles(files);
+  // Kept only for what may go better next time: a file that is no log would fail at every share to come.
+  await change(db, keys.filter((_, index) => !retry.has(index)).map(key => ({ store: "inbox", key })));
   // One shared drive is one drive somebody wants to look at, not a month of them to browse.
   if (fresh.length !== 1) return;
   const drive = summaries.find(s => s.id === fresh[0]);
@@ -493,6 +464,13 @@ async function forget(id) {
   const lastOfFile = !summaries.some(s => s.fileId === gone.fileId && s.id !== id);
   await change(db, [{ store: "summaries", key: id }, ...(lastOfFile ? [{ store: "files", key: gone.fileId }] : [])]);
   summaries = summaries.filter(s => s.id !== id);
+}
+
+/** Copies of one charging session stored before sessions were told apart by their id. */
+async function dropSessionCopies() {
+  const copies = sessionCopies(logged);
+  await change(db, copies.map(c => ({ store: "charges", key: c.fileId })));
+  logged = logged.filter(c => !copies.includes(c));
 }
 
 /**
@@ -1848,8 +1826,9 @@ $("driveRows").addEventListener("change", tickedChanged);
 $("openTicked").addEventListener("click", () => {
   const ticked = [...$("driveRows").querySelectorAll("input:checked")];
   const files = [...new Set(ticked.map(i => i.dataset.file))];
+  const spans = ticked.map(i => `${files.indexOf(i.dataset.file)}:${i.dataset.start}-${i.dataset.end}`);
   location.href = playerHref(files,
-    Math.min(...ticked.map(i => Number(i.dataset.start))), Math.max(...ticked.map(i => Number(i.dataset.end))));
+    Math.min(...ticked.map(i => Number(i.dataset.start))), Math.max(...ticked.map(i => Number(i.dataset.end)))) + `&spans=${spans.join(",")}`;
 });
 for (const b of document.querySelectorAll("[data-kind]")) b.addEventListener("click", () => {
   const anchor = kind === "all" ? latestStart() : start;
@@ -1874,7 +1853,11 @@ $("driveSync").addEventListener("click", async () => {
       let drives = 0;
       const { found, unread } = await syncLogs({
         token, seen: await get(db, "settings", "driveSeen") ?? {},
-        add: async files => { drives += (await importFiles(files, { keepErrors: true })).fresh.length; },
+        add: async files => {
+          const { fresh, retry } = await importFiles(files, { keepErrors: true });
+          drives += fresh.length;
+          return files.filter((_, k) => retry.has(k));
+        },
         keep: seen => change(db, [{ store: "settings", key: "driveSeen", value: seen }]),
       });
       $("importStatus").textContent = !found ? `Nothing new in ${FOLDER}.`
@@ -2004,7 +1987,7 @@ if (new URLSearchParams(location.search).get("inbox") === "failed") {
   $("importStatus").textContent = `The shared files could not be read: ${e.message}`;
 });
 // showLatest() must run whether the rebuild succeeds or not, or the busy text never clears.
-serially(async () => { try { await rebuildStale(); } finally { showLatest(); } }).catch(e => {
+serially(async () => { try { await dropSessionCopies(); await rebuildStale(); } finally { showLatest(); } }).catch(e => {
   $("importCard").hidden = false;
   $("importStatus").textContent = `Updating the stored drives failed: ${e.message}`;
 });

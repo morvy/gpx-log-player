@@ -11,11 +11,12 @@ const CACHE = `gpx-log-player-${VERSION}`;
 const TILES = "gpx-log-player-tiles";
 const TILE_HOST = "tile.openstreetmap.org";
 const TILE_LIMIT = 2000;
+const PATIENCE_MS = 4000;
 
 // The pages' own code: whatever ships together and must not lag behind the page that imports it.
 const PAGES = ["./", "index.html", "statistics.html", "validate.html", "stats-worker.js",
   "stats/battery.js", "stats/charges.js", "stats/charging-csv.js", "stats/coach.js", "stats/coach-view.js", "stats/drive.js", "stats/episodes.js", "stats/gpx.js",
-  "stats/habits.js", "stats/num.js", "stats/patterns.js", "stats/periods.js", "stats/settings.js", "stats/store.js",
+  "stats/habits.js", "stats/importing.js", "stats/num.js", "stats/patterns.js", "stats/periods.js", "stats/settings.js", "stats/store.js",
   "stats/summary.js", "stats/tabs-view.js", "stats/trip-view.js", "stats/trip.js"];
 
 // Files that only ever change with a new version of the site.
@@ -82,24 +83,38 @@ self.addEventListener("fetch", e => {
   if (url.hostname === TILE_HOST) return e.respondWith(tile(e.request));
   if (PINNED.includes(url.href)) return e.respondWith(cacheFirst(cors(url.href)));
   if (path === null || !OURS.has(path)) return;
-  const answer = PAGES.includes(path || "./") ? networkFirst(e.request) : cacheFirst(e.request);
+  const answer = PAGES.includes(path || "./") ? networkFirst(e) : cacheFirst(e.request);
   e.respondWith(e.request.method === "HEAD" ? answer.then(bodiless) : answer);
 });
 
-/** Online is always the newest page; offline, the one last seen. */
-async function networkFirst(request) {
+/**
+ * Online is always the newest page; offline, the one last seen. A weak signal is neither: a request can
+ * hang on it without ever failing, so after [PATIENCE_MS] the saved page answers. The request runs on and
+ * stores what it gets for next time, so it is not aborted; with nothing saved it is still the only answer.
+ */
+async function networkFirst(event) {
+  const { request } = event;
   const cache = await caches.open(CACHE);
-  try {
-    const fresh = await fetch(request);
+  // index.html?drive=… is the same page: the query picks a drive, it does not pick a file.
+  const saved = () => cache.match(request, { ...MATCH, ignoreSearch: true });
+  const network = fetch(request).then(async fresh => {
     // The query picks a drive, not a file: one copy of the page under its own path. A redirected
     // reply is never stored - handed back to a navigation offline it fails it, for ever.
     if (fresh.ok && !fresh.redirected && request.method === "GET") await cache.put(request.url.split("?")[0], fresh.clone());
     return fresh;
+  });
+  // Past the answer, this keeps the worker alive for the store; a failure then has nobody left to tell.
+  event.waitUntil(network.catch(() => {}));
+  let timer;
+  const patience = new Promise(resolve => { timer = setTimeout(resolve, PATIENCE_MS); }).then(async () => await saved() ?? network);
+  try {
+    return await Promise.race([network, patience]);
   } catch (e) {
-    // index.html?drive=… is the same page: the query picks a drive, it does not pick a file.
-    const hit = await cache.match(request, { ...MATCH, ignoreSearch: true });
+    const hit = await saved();
     if (hit) return hit;
     throw e;
+  } finally {
+    clearTimeout(timer);
   }
 }
 

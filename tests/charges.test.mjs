@@ -525,3 +525,9 @@ test("charge lost parked: a fall across a long gap where the car stayed, nothing
   // A rise is a charge, not a loss.
   assert.equal(losses([stop(START, 80, 70), stop(START + 24 * HOUR, 90, 80)]).length, 0);
 });
+
+test("a jump of points over a minute's stop is no charge to draw a curve from", () => {
+  const charge = { dc: true, moved: false, hours: 61 / 3600 };
+  assert.deepEqual(curveCharges([charge], LIMITS), []);
+  assert.equal(curveCharges([{ ...charge, hours: 0.5 }], LIMITS).length, 1);
+});

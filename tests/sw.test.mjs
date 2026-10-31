@@ -12,7 +12,7 @@ function load(location = "https://example.test/player/sw.js") {
   const listeners = new Map();
   const calls = { skipWaiting: 0, claim: 0 };
   const context = vm.createContext({
-    URL, URLSearchParams, Request, Response, Headers, FormData, Blob, File, TextEncoder,
+    URL, URLSearchParams, Request, Response, Headers, FormData, Blob, File, TextEncoder, setTimeout, clearTimeout,
     console, fetch: async () => { throw new Error("nothing in these tests goes to the network"); },
     caches: null, indexedDB: null,
     self: {
@@ -133,7 +133,7 @@ function share(files, at = "https://example.test/player/share") {
 /** The fetch listener run against one request; `answer` is undefined when the worker leaves it alone. */
 function fetched(listeners, request) {
   let answer;
-  listeners.get("fetch")({ request, respondWith: reply => { answer = reply; } });
+  listeners.get("fetch")({ request, respondWith: reply => { answer = reply; }, waitUntil: () => {} });
   return answer;
 }
 
@@ -177,6 +177,38 @@ function stubCaches(context) {
   };
   return { opened, puts, asked, fetched };
 }
+
+test("a page whose request hangs on a weak signal is answered from the cache, and one with no copy keeps waiting", async () => {
+  const { context, listeners } = load();
+  stubCaches(context);
+  context.fetch = () => new Promise(() => {});
+  context.setTimeout = fn => { fn(); return 0; };
+  assert.equal(await (await fetched(listeners, new Request("https://example.test/player/statistics.html"))).text(), "cached");
+
+  // Past the answer the worker is held open, so what the request brings in time is still stored.
+  const { context: held, listeners: heard } = load();
+  const { puts } = stubCaches(held);
+  let arrive, kept;
+  held.fetch = () => new Promise(resolve => { arrive = resolve; });
+  held.setTimeout = fn => { fn(); return 0; };
+  heard.get("fetch")({ request: new Request("https://example.test/player/statistics.html"), respondWith: reply => reply, waitUntil: p => { kept = p; } });
+  await new Promise(resolve => setTimeout(resolve, 10));
+  arrive(new Response("network"));
+  await kept;
+  assert.deepEqual(puts, ["https://example.test/player/statistics.html"]);
+
+  const late = load();
+  stubCaches(late.context);
+  const open = late.context.caches.open;
+  late.context.caches.open = async name => ({ ...(await open(name)), match: async () => undefined });
+  let answer;
+  late.context.fetch = () => new Promise(resolve => { answer = resolve; });
+  late.context.setTimeout = fn => { fn(); return 0; };
+  const reply = fetched(late.listeners, new Request("https://example.test/player/statistics.html"));
+  await new Promise(resolve => setTimeout(resolve, 10));
+  answer(new Response("network"));
+  assert.equal(await (await reply).text(), "network");
+});
 
 test("each kind of request gets the strategy section 5 asks for", async () => {
   const { sw, context, listeners } = load();

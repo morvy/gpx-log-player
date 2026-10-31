@@ -48,13 +48,24 @@ test("a file read is seen whatever came of it; one that failed to fetch waits fo
   fakeDrive(files, { broken: ["f3"] });
   const added = [], kept = [];
   const seen = { f0: "m" };
-  const result = await syncLogs({ token: "t", seen, add: async got => added.push(...got.map(f => f.name)), keep: async s => kept.push(Object.keys(s).length) });
+  const result = await syncLogs({ token: "t", seen, add: async got => { added.push(...got.map(f => f.name)); }, keep: async s => kept.push(Object.keys(s).length) });
   assert.deepEqual(result, { found: 11, unread: 1 });
   assert.equal(added.length, 10);
   assert.ok(!added.includes("gpx-00.gpx"));
   assert.equal(seen.f3, undefined);
   assert.equal(kept.length, 2, "stored after each chunk");
   assert.deepEqual((await syncLogs({ token: "t", seen, add: async () => {}, keep: async () => {} })), { found: 1, unread: 1 });
+});
+
+test("a file that could not be stored is not seen, and comes back next sync", async () => {
+  const files = [{ id: "a", name: "gpx-1.gpx", md5Checksum: "m" }, { id: "b", name: "gpx-2.gpx", md5Checksum: "m" }];
+  fakeDrive(files);
+  const seen = {};
+  const first = await syncLogs({ token: "t", seen, add: async got => got.filter(f => f.name === "gpx-2.gpx"), keep: async () => {} });
+  assert.deepEqual(first, { found: 2, unread: 1 });
+  assert.deepEqual(Object.keys(seen), ["a"]);
+  assert.deepEqual(await syncLogs({ token: "t", seen, add: async () => {}, keep: async () => {} }), { found: 1, unread: 0 });
+  assert.deepEqual(Object.keys(seen).sort(), ["a", "b"]);
 });
 
 test("a Drive that refuses the listing says so", async () => {

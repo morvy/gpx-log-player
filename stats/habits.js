@@ -176,9 +176,10 @@ export function speedBands(log) {
   for (let i = 1; i < n; i++) {
     const dt = (t[i] - t[pi]) / 1000;
     // A step this cannot measure still covered ground, so it rolls into the next one. Only a gap long
-    // enough to be a pause breaks the carry: nothing crossed during a pause belongs to a band.
+    // enough to be a pause breaks the carry: nothing crossed during a pause belongs to a band. A step
+    // starting from no speed has nothing to carry, so the next reading takes over at once.
     if (!(dt > 0) || dt * 1000 > STEP_MS || !ok(speed[i]) || !ok(speed[pi])) {
-      if (t[i] - t[pi] >= STEP_MS) pi = i;
+      if (t[i] - t[pi] >= STEP_MS || (!ok(speed[pi]) && ok(speed[i]) && t[i] > t[pi])) pi = i;
       continue;
     }
     const band = bands[bandOf((speed[i] + speed[pi]) / 2)];

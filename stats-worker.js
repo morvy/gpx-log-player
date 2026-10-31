@@ -1,11 +1,7 @@
 // Parsing a month of logs takes seconds; here it does not freeze the page.
 import { parseGpx, splitDrives, continueCounters } from "./stats/gpx.js";
 import { summarize, readable } from "./stats/summary.js";
-
-async function sha256(text) {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
-  return Array.from(new Uint8Array(digest), b => b.toString(16).padStart(2, "0")).join("");
-}
+import { sha256 } from "./stats/num.js";
 
 // The calibration comes with the file: it goes into the measuring, so the page
 // sends whatever the driver has set and a changed one rebuilds what it changed.

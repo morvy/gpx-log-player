@@ -335,3 +335,9 @@ test("cell resistance: each cell's sag against the pack median, fitted over the 
   assert.equal(cellResistance(logOf(points.slice(0, 10))), null);
   assert.equal(cellResistance(logOf(points.map(p => ({ ...p, ev: { ...p.ev, current_a: 20 } })))), null);
 });
+
+test("a charge reading where the energy counter has a gap is explained by power instead", () => {
+  // 60 kW for 30 s is 0.5 kWh, about 2 points: the driving, not a jump.
+  const log = logOf(trace(40, 36, k => ({ soc_percent: k === 0 ? 80 : k === 30 ? 78 : null, power_kw: 60, energy_kwh: k === 0 || k === 30 ? null : 1 })));
+  assert.deepEqual(chargeJumps(log), []);
+});

@@ -118,9 +118,12 @@ export function findParkedLosses(summaries, limits, perPoint) {
   return found;
 }
 
-/** The charges the curve may be drawn from: DC, in one place, and over a gap short enough to be charging and not a night. */
+/**
+ * The charges the curve may be drawn from: DC, in one place, and over a gap short enough to be charging and
+ * not a night, yet not so short it is the car correcting its own figure - a jump of points over a minute's stop.
+ */
 export const curveCharges = (charges, limits) =>
-  charges.filter(c => c.dc && !c.moved && c.hours <= limits.chargeGapHours);
+  charges.filter(c => c.dc && !c.moved && c.hours >= 0.1 && c.hours <= limits.chargeGapHours);
 
 /**
  * kW by band of charge over the charges curveCharges() allows: the mean of the
