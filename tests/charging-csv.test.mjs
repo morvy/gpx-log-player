@@ -25,7 +25,7 @@ test("parses valid session metadata and points", () => {
 });
 
 test("rejects unsupported versions and malformed rows", () => {
-  assert.throws(() => parseChargingCsv("format_version,3\n"), /version/i);
+  assert.throws(() => parseChargingCsv("format_version,4\n"), /version/i);
   assert.throws(() => parseChargingCsv(validCsv.replace("31.0,true", "nope,true")), /soc_pct/i);
   assert.throws(() => parseChargingCsv(validCsv.replace("1800,42.0", "-1,42.0")), /charge_s/i);
   assert.throws(() => parseChargingCsv(validCsv.replace("1800,42.0", "900,42.0").replace("0,49.2", "1200,49.2")), /non-decreasing/i);
@@ -59,4 +59,15 @@ test("reads version 2, its five extra rows empty-able, and sniffs its later head
   assert.throws(() => parseChargingCsv(v2Csv.replace("connector,DC", "connector,XX")), /connector/i);
   assert.throws(() => parseChargingCsv(v2Csv.replace("soh_pct,89.36\n", "")), /metadata/i);
   assert.throws(() => parseChargingCsv(validCsv.replace("peak_kw,52.1\n", "peak_kw,52.1\nsoh_pct,90\n")), /metadata/i);
+});
+
+test("a version 3 file carries line A's share of the pack current", () => {
+  const text = ["format_version,3", "vehicle,honda-e", "session_id,s3", "started_at,2026-11-05T10:00:00Z", "ended_at,2026-11-05T11:00:00Z",
+    "soc_from,40", "soc_to,80", "kwh_added,11.5", "seconds,3600", "peak_kw,6.9",
+    "soh_pct,89.36", "connector,AC", "pack_temp_start_c,12", "pack_temp_end_c,18", "odometer_km,33938", "line_a_share,0.497",
+    "charge_s,charge_kw,soc_pct,observed", "0,6.9,40,true", "3600,6.8,80,true"].join("\n");
+  const doc = parseChargingCsv(text);
+  assert.equal(doc.formatVersion, 3);
+  assert.equal(doc.lineShareA, 0.497);
+  assert.equal(doc.odometerKm, 33938);
 });

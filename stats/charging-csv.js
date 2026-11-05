@@ -1,6 +1,8 @@
 const METADATA = ["format_version", "vehicle", "session_id", "started_at", "ended_at", "soc_from", "soc_to", "kwh_added", "seconds", "peak_kw"];
 // Version 2 (the app's ChargingSessionCsv) adds these after the ten above; each may be empty.
 const METADATA_V2 = ["soh_pct", "connector", "pack_temp_start_c", "pack_temp_end_c", "odometer_km"];
+// Version 3 adds line A's share of the pack current (0-1): the e's pack is two parallel strings.
+const METADATA_V3 = ["line_a_share"];
 const HEADER = "charge_s,charge_kw,soc_pct,observed";
 
 // ponytail: the header sits after the metadata rows - 16 lines into a version 2 file; 32 leaves room for a version 3
@@ -28,7 +30,7 @@ export function parseChargingCsv(text) {
   const header = lines.indexOf(HEADER);
   if (header < 0) {
     const version = lines.find(line => line.startsWith("format_version,"));
-    if (version && !["format_version,1", "format_version,2"].includes(version)) throw new Error(`Unsupported format version: ${version.slice("format_version,".length)}`);
+    if (version && !["format_version,1", "format_version,2", "format_version,3"].includes(version)) throw new Error(`Unsupported format version: ${version.slice("format_version,".length)}`);
     throw new Error("Missing charging session point header.");
   }
   if (header < METADATA.length) throw new Error("Missing charging session metadata.");
@@ -37,7 +39,7 @@ export function parseChargingCsv(text) {
     const comma = line.indexOf(",");
     if (comma < 1) throw new Error(`Malformed metadata row: ${line}`);
     const key = line.slice(0, comma), value = line.slice(comma + 1);
-    if (!METADATA.includes(key) && !METADATA_V2.includes(key)) throw new Error(`Unexpected metadata: ${key}`);
+    if (!METADATA.includes(key) && !METADATA_V2.includes(key) && !METADATA_V3.includes(key)) throw new Error(`Unexpected metadata: ${key}`);
     if (Object.hasOwn(metadata, key)) throw new Error(`Duplicate metadata: ${key}`);
     metadata[key] = value;
   }
@@ -48,8 +50,9 @@ export function parseChargingCsv(text) {
     return value;
   };
   const formatVersion = number("format_version");
-  if (formatVersion !== 1 && formatVersion !== 2) throw new Error(`Unsupported format version: ${metadata.format_version}`);
-  if (METADATA_V2.some(key => Object.hasOwn(metadata, key) !== (formatVersion === 2))) throw new Error(`Unexpected charging session metadata for version ${formatVersion}.`);
+  if (![1, 2, 3].includes(formatVersion)) throw new Error(`Unsupported format version: ${metadata.format_version}`);
+  if (METADATA_V2.some(key => Object.hasOwn(metadata, key) !== (formatVersion >= 2))) throw new Error(`Unexpected charging session metadata for version ${formatVersion}.`);
+  if (METADATA_V3.some(key => Object.hasOwn(metadata, key) !== (formatVersion >= 3))) throw new Error(`Unexpected charging session metadata for version ${formatVersion}.`);
   const optional = key => (metadata[key] ?? "") === "" ? null : number(key);
   const connector = metadata.connector || null;
   if (connector !== null && connector !== "AC" && connector !== "DC") throw new Error(`Invalid connector: ${connector}`);
@@ -80,5 +83,5 @@ export function parseChargingCsv(text) {
   });
   if (points.some((point, i) => i && point.chargeS < points[i - 1].chargeS)) throw new Error("charge_s must be non-decreasing");
   return { formatVersion, vehicle: metadata.vehicle, sessionId: metadata.session_id, startedAt: metadata.started_at, endedAt: metadata.ended_at, socFrom, socTo, kwhAdded, seconds, peakKw,
-    sohPct: optional("soh_pct"), connector, packTempStartC: optional("pack_temp_start_c"), packTempEndC: optional("pack_temp_end_c"), odometerKm: optional("odometer_km"), points };
+    sohPct: optional("soh_pct"), connector, packTempStartC: optional("pack_temp_start_c"), packTempEndC: optional("pack_temp_end_c"), odometerKm: optional("odometer_km"), lineShareA: optional("line_a_share"), points };
 }

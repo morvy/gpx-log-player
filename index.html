@@ -153,6 +153,7 @@
   </form>
 </dialog>
 
+<script src="stats/ids.js"></script>
 <script>
 "use strict";
 const NS_EV = "urn:dev.moped:ev-gpx:1";
@@ -219,7 +220,7 @@ function parseGpx(text) {
   }
   const name = doc.getElementsByTagNameNS("*", "trk")[0]?.getElementsByTagNameNS("*", "name")[0]?.textContent || "";
   const vehicle = doc.getElementsByTagNameNS(NS_EV, "vehicle")[0]?.textContent || "";
-  return { n, lat, lon, t, cols, cells, key, name, carEvents, vehicle };
+  return HondaIds.migrateIds({ n, lat, lon, t, cols, cells, key, name, carEvents, vehicle });
 }
 
 /**

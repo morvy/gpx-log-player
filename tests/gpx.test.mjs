@@ -136,3 +136,14 @@ test("splitDrives does not compare the charge across a drive it already closed",
   const parts = splitDrives(parseGpx(gpxLog({ points: [...a, ...plugged, ...first, ...rest] })));
   assert.deepEqual(parts.map(p => p.n), [61, 82]);
 });
+
+test("parseGpx reads a GPX from before the app renamed its ids under today's names", () => {
+  const points = steadyDrive({ seconds: 1 });
+  points.forEach(p => { p.ev = { ...p.ev, temp_a: 31, aircon: 13, dcfc_cand: 1 }; });
+  const log = parseGpx(gpxLog({ points, fields: { temp_a: ["Charger", "°C"], dcfc_cand: ["DC", ""] } }));
+  assert.deepEqual([...log.cols.charger_temp_1], [31, 31]);
+  assert.deepEqual([...log.cols.radiator_fan_duty], [13, 13]);
+  assert.equal(log.cols.temp_a, undefined);
+  assert.equal(log.cols.dcfc_cand, undefined);
+  assert.deepEqual(Object.keys(log.key), ["charger_temp_1"]);
+});
