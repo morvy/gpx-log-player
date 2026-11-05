@@ -2,6 +2,7 @@
 // player's parseGpx (index.html) reads, into the same shape.
 
 import { ok, firstValid, lastValid } from "./num.js";
+import "./ids.js";
 
 export const NS_EV = "urn:dev.moped:ev-gpx:1";
 export const NS_TPX = "http://www.garmin.com/xmlschemas/TrackPointExtension/v2";
@@ -103,7 +104,7 @@ export function parseGpx(text) {
     }
     if (ours && p.type) carEvents.push({ i, name: p.name, desc: p.desc, type: p.type });
   });
-  return { n, lat, lon, t, cols, cells, key, vehicle, name, carEvents };
+  return globalThis.HondaIds.migrateIds({ n, lat, lon, t, cols, cells, key, vehicle, name, carEvents });
 }
 
 /** Points [a]..[b] of a log as a log of their own. */

@@ -15,7 +15,7 @@ const PATIENCE_MS = 4000;
 
 // The pages' own code: whatever ships together and must not lag behind the page that imports it.
 const PAGES = ["./", "index.html", "statistics.html", "validate.html", "stats-worker.js",
-  "stats/battery.js", "stats/charges.js", "stats/charging-csv.js", "stats/coach.js", "stats/coach-view.js", "stats/drive.js", "stats/episodes.js", "stats/gpx.js",
+  "stats/battery.js", "stats/charges.js", "stats/charging-csv.js", "stats/coach.js", "stats/coach-view.js", "stats/drive.js", "stats/episodes.js", "stats/gpx.js", "stats/ids.js",
   "stats/habits.js", "stats/importing.js", "stats/num.js", "stats/patterns.js", "stats/periods.js", "stats/settings.js", "stats/store.js",
   "stats/summary.js", "stats/tabs-view.js", "stats/trip-view.js", "stats/trip.js"];
 
